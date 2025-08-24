@@ -1,0 +1,111 @@
+{
+  "name": "figment-mcp",
+  "version": "1.2.1",
+  "description": "Universal Figma to Code Bridge with AI Integration - Transform Figma designs into production-ready code using Model Context Protocol (MCP)",
+  "main": "scripts/setup.js",
+  "bin": {
+    "figment": "dist/mcp-server.js",
+    "figment-setup": "scripts/setup.js",
+    "figment-bridge": "scripts/figma-bridge.js",
+    "figment-setup-direct": "scripts/run-setup.js",
+    "figma-setup": "scripts/setup.js"
+  },
+  "files": [
+    "dist/",
+    "scripts/",
+    "bin/",
+    "docs/",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "npx @create-figma-plugin/build && npm run build:mcp",
+    "build:mcp": "tsx scripts/build-mcp-server.js",
+    "dev": "npx @create-figma-plugin/build --watch",
+    "watch": "npx @create-figma-plugin/build --watch",
+    "setup": "node scripts/setup.js",
+    "publish-package": "node scripts/publish.js",
+    "start": "node dist/mcp-server.js",
+    "bridge": "node scripts/figma-bridge.js",
+    "bridge:dev": "node scripts/figma-bridge.js",
+    "bridge:test": "node test-bridge.js",
+    "bridge:demo": "node demo-bridge-workflow.js",
+    "test:mcp": "echo '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}' | npx tsx src/mcp-server.ts",
+    "test:package": "node scripts/test-npm-package.js",
+    "prepublishOnly": "npm run build",
+    "postinstall": "echo 'MCP server already built during publish'"
+  },
+  "keywords": [
+    "figma",
+    "figment",
+    "ai",
+    "design",
+    "development",
+    "universal",
+    "blueprint",
+    "code-generation",
+    "mcp",
+    "cli",
+    "design-to-code",
+    "figma-plugin",
+    "model-context-protocol",
+    "cursor",
+    "claude",
+    "continue",
+    "typescript",
+    "react",
+    "vue",
+    "html",
+    "css",
+    "design-system",
+    "accessibility",
+    "automation"
+  ],
+  "author": "Robin Naghshbandi <robin@figment.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rbnnghs/Figment.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rbnnghs/Figment/issues"
+  },
+  "homepage": "https://github.com/rbnnghs/Figment#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/rbnnghs"
+  },
+  "devDependencies": {
+    "@create-figma-plugin/build": "^4.0.1",
+    "@create-figma-plugin/tsconfig": "^4.0.1",
+    "@figma/plugin-typings": "1.109.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": ">=5"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0"
+  },
+  "figma-plugin": {
+    "editorType": [
+      "figma"
+    ],
+    "id": "figment",
+    "name": "Figment",
+    "main": "src/main.ts",
+    "ui": "src/ui.tsx"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}
