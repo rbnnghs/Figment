@@ -250,17 +250,24 @@ async function captureComponentScreenshot(node: SceneNode): Promise<string | nul
     const originalVisible = node.visible;
     node.visible = true;
 
-    // Export the node as PNG
+    // Export the node as PNG with reduced quality to save storage
     const exportSettings: ExportSettingsImage = {
       format: 'PNG',
       constraint: {
         type: 'SCALE',
-        value: 2 // 2x scale for better quality
+        value: 1 // Reduced from 2x to 1x to save storage
       }
     };
 
     const imageBytes = await node.exportAsync(exportSettings);
     console.log('📸 Image exported, size:', imageBytes.length, 'bytes');
+
+    // Check if image is too large (> 1MB base64 = ~750KB raw)
+    if (imageBytes.length > 750000) {
+      console.log('⚠️ Screenshot too large, skipping to save storage');
+      node.visible = originalVisible;
+      return null;
+    }
 
     // Generate a unique filename for the screenshot
     const timestamp = Date.now();
@@ -269,6 +276,10 @@ async function captureComponentScreenshot(node: SceneNode): Promise<string | nul
     
     // Store the screenshot data in client storage for later extraction
     const base64Image = figma.base64Encode(imageBytes);
+    
+    // Clean up old screenshots before storing new one
+    await cleanupOldScreenshots();
+    
     await figma.clientStorage.setAsync(`screenshot_${filename}`, base64Image);
     
     console.log('📸 Screenshot saved with filename:', filename);
@@ -281,6 +292,81 @@ async function captureComponentScreenshot(node: SceneNode): Promise<string | nul
     console.error('❌ Screenshot capture failed:', error);
     // Don't fail the entire export if screenshot fails
     return null;
+  }
+}
+
+// Function to clean up old screenshots and tokens to prevent storage quota issues
+async function cleanupOldScreenshots() {
+  try {
+    const keys = await figma.clientStorage.keysAsync();
+    const screenshotKeys = keys.filter(key => key.startsWith('screenshot_'));
+    const tokenKeys = keys.filter(key => key.startsWith('figma_'));
+    
+    console.log(`🔍 Found ${screenshotKeys.length} screenshots and ${tokenKeys.length} tokens in storage`);
+    
+    // If we have too many items, be more aggressive with cleanup
+    if (screenshotKeys.length > 3 || tokenKeys.length > 5) {
+      console.log('🧹 Performing aggressive cleanup...');
+      
+      // Delete all but the 2 most recent screenshots
+      if (screenshotKeys.length > 2) {
+        const keysToDelete = screenshotKeys.slice(0, screenshotKeys.length - 2);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Cleaned up old screenshot:', key);
+        }
+      }
+      
+      // Delete all but the 3 most recent tokens
+      if (tokenKeys.length > 3) {
+        const keysToDelete = tokenKeys.slice(0, tokenKeys.length - 3);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Cleaned up old token:', key);
+        }
+      }
+    } else {
+      // Normal cleanup - keep only the 5 most recent screenshots and 10 most recent tokens
+      if (screenshotKeys.length > 5) {
+        const keysToDelete = screenshotKeys.slice(0, screenshotKeys.length - 5);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Cleaned up old screenshot:', key);
+        }
+      }
+      
+      if (tokenKeys.length > 10) {
+        const keysToDelete = tokenKeys.slice(0, tokenKeys.length - 10);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Cleaned up old token:', key);
+        }
+      }
+    }
+    
+    console.log('✅ Storage cleanup completed');
+  } catch (error) {
+    console.error('❌ Error cleaning up old storage:', error);
+  }
+}
+
+// Emergency storage cleanup - clears everything if storage is still full
+async function emergencyStorageCleanup() {
+  try {
+    console.log('🚨 Performing emergency storage cleanup...');
+    const keys = await figma.clientStorage.keysAsync();
+    
+    // Delete all screenshots and tokens
+    for (const key of keys) {
+      if (key.startsWith('screenshot_') || key.startsWith('figma_')) {
+        await figma.clientStorage.deleteAsync(key);
+        console.log('🗑️ Emergency cleanup deleted:', key);
+      }
+    }
+    
+    console.log('✅ Emergency cleanup completed');
+  } catch (error) {
+    console.error('❌ Error during emergency cleanup:', error);
   }
 }
 
@@ -384,23 +470,42 @@ function generateToken(): string {
 }
 
 // Save token mapping to MCP server
-function saveTokenMapping(token: string, componentData: any) {
-  // In a real implementation, this would communicate with the MCP server
-  // For now, we'll save to the MCP server's expected location
+async function saveTokenMapping(token: string, componentData: any) {
+  // Define tokenData outside try block so it's available in catch
   const tokenData = {
     component: componentData,
     created: new Date().toISOString(),
     expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
   };
   
-  // Store in Figma's client storage for the MCP server to access
-  figma.clientStorage.setAsync(token, JSON.stringify(tokenData))
-    .then(() => {
-      console.log('Token saved to client storage:', token);
-    })
-    .catch((error) => {
-      console.error('Error saving token:', error);
-    });
+  try {
+    // Clean up old storage before saving new token
+    await cleanupOldScreenshots();
+    
+    // Store in Figma's client storage for the MCP server to access
+    await figma.clientStorage.setAsync(token, JSON.stringify(tokenData));
+    console.log('Token saved to client storage:', token);
+  } catch (error) {
+    console.error('Error saving token to client storage:', error);
+    // If storage fails, try to clean up and retry once
+    try {
+      await cleanupOldScreenshots();
+      await figma.clientStorage.setAsync(token, JSON.stringify(tokenData));
+      console.log('Token saved to client storage after cleanup:', token);
+    } catch (retryError) {
+      console.error('Failed to save token after normal cleanup, trying emergency cleanup:', retryError);
+      // If normal cleanup fails, try emergency cleanup
+      try {
+        await emergencyStorageCleanup();
+        await figma.clientStorage.setAsync(token, JSON.stringify(tokenData));
+        console.log('Token saved to client storage after emergency cleanup:', token);
+      } catch (emergencyError) {
+        console.error('Failed to save token even after emergency cleanup:', emergencyError);
+        // At this point, we can't save to storage, but we can still send to bridge
+        console.log('⚠️ Storage unavailable, but export can still proceed via bridge');
+      }
+    }
+  }
 }
 
 async function exportFigmentToMCP() {

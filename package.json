@@ -1,6 +1,6 @@
 {
   "name": "figment-mcp",
-  "version": "1.2.1",
+  "version": "1.2.3",
   "description": "Universal Figma to Code Bridge with AI Integration - Transform Figma designs into production-ready code using Model Context Protocol (MCP)",
   "main": "scripts/setup.js",
   "bin": {
@@ -35,6 +35,8 @@
     "bridge:demo": "node demo-bridge-workflow.js",
     "test:mcp": "echo '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\"}' | npx tsx src/mcp-server.ts",
     "test:package": "node scripts/test-npm-package.js",
+    "bridge:logs": "node scripts/bridge-logs.js",
+    "clear-storage": "node scripts/clear-figma-storage.js",
     "prepublishOnly": "npm run build",
     "postinstall": "echo 'MCP server already built during publish'"
   },
@@ -82,14 +84,18 @@
     "@create-figma-plugin/build": "^4.0.1",
     "@create-figma-plugin/tsconfig": "^4.0.1",
     "@figma/plugin-typings": "1.109.0",
+    "@types/node": "^20.0.0",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
-    "@types/node": "^20.0.0",
     "tsx": "^4.0.0",
     "typescript": ">=5"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0"
+    "@create-figma-plugin/ui": "^4.0.3",
+    "@create-figma-plugin/utilities": "^4.0.3",
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "figment-mcp": "^1.2.2",
+    "preact": "^10.27.1"
   },
   "figma-plugin": {
     "editorType": [

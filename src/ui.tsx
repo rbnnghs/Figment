@@ -2858,7 +2858,7 @@ type ModalAnimation = 'fade' | 'slide' | 'scale';`);
             }}
           >
             {/* <span style={{ fontSize: '14px' }}>⚡</span> */}
-            Bridge to MCP
+            Bridge
           </button>
 
           {/* Divider */}

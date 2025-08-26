@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.3] - 2024-08-26
+
+### Added
+- Bridge server log monitoring script (`npm run bridge:logs`)
+- Manual storage cleanup tool (`npm run clear-storage`)
+- Emergency storage cleanup functionality
+- Aggressive storage management to prevent quota issues
+
+### Changed
+- Reduced screenshot size limit from 1.5MB to 750KB to save storage
+- More aggressive storage cleanup (keeps only 2 screenshots, 3 tokens when storage is full)
+- Enhanced error handling with multiple fallback levels
+
+### Fixed
+- **CRITICAL**: Fixed storage quota exceeded errors (5MB limit)
+- Fixed JavaScript error in `saveTokenMapping` function
+- Improved storage cleanup reliability
+- Better error recovery when storage is full
+
+## [1.2.1] - 2024-08-26
 
 ### Added
 - Screenshot capture functionality for visual reference
