@@ -3,8 +3,12 @@
   "editorType": [
     "figma"
   ],
-  "id": "figment",
+  "id": "1542156801194310914",
   "name": "Figment",
   "main": "build/main.js",
-  "ui": "build/ui.js"
+  "ui": "build/ui.js",
+  "networkAccess": {
+    "allowedDomains": ["localhost", "127.0.0.1"]
+  },
+  "documentAccess": "dynamic-page"
 }
