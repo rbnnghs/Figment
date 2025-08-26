@@ -7,7 +7,7 @@ Transform your Figma designs into production-ready code with the power of AI. Fi
 [![Figma Plugin](https://img.shields.io/badge/Figma-Plugin-blue?logo=figma)](https://www.figma.com/community/plugin/figment)
 [![npm version](https://img.shields.io/npm/v/figment-mcp.svg)](https://www.npmjs.com/package/figment-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js CI](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
+[![Node.js CI](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
 [![MCP Integration](https://img.shields.io/badge/MCP-Integration-purple.svg)](https://modelcontextprotocol.io/)
 
 ## Quick Install
@@ -79,7 +79,7 @@ figment-setup-direct # Direct setup alternative
 
 ### Prerequisites
 
-- **Node.js**: 20.0.0 or higher
+- **Node.js**: 22.0.0 or higher (required for @create-figma-plugin/build)
 - **Figma**: Desktop app or web browser
 - **Supported IDEs**: Cursor, Claude Desktop, Continue, VS Code with MCP extension
 
@@ -108,6 +108,142 @@ This will:
 - ✅ Set up export directories (`~/.figma-exports/`)
 - ✅ Test the connection
 - ✅ Fix PATH issues if needed
+
+## Troubleshooting
+
+### Common Build Issues
+
+#### Node.js Version Error
+```
+npm WARN EBADENGINE Unsupported engine {
+  package: '@create-figma-plugin/build@4.0.3',
+  required: { node: '>=22' },
+  current: { node: 'v20.11.1', npm: '10.2.4' }
+}
+```
+
+**Solution**: Update Node.js to version 22 or higher
+```bash
+# Using nvm (recommended)
+nvm install 22
+nvm use 22
+
+# Or download from https://nodejs.org/
+```
+
+#### Missing Dependencies Error
+```
+error esbuild error
+    Build failed with 1 error:
+    src/main.ts:1:39: ERROR: Could not resolve "@create-figma-plugin/utilities"
+```
+
+**Solution**: Reinstall dependencies
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
+
+#### Build Process Fails
+If the build process fails, try these steps in order:
+
+1. **Check Node.js version**:
+   ```bash
+   node --version  # Should be >=22.0.0
+   ```
+
+2. **Clean and reinstall**:
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+3. **Run pre-build checks**:
+   ```bash
+   node scripts/pre-build.js
+   ```
+
+4. **Build step by step**:
+   ```bash
+   npm run build:figma    # Build Figma plugin first
+   npm run build:mcp      # Then build MCP server
+   ```
+
+### IDE Integration Issues
+
+#### MCP Server Not Found
+If your IDE can't find the MCP server:
+
+1. **Check installation**:
+   ```bash
+   which figment
+   figment --version
+   ```
+
+2. **Reinstall globally**:
+   ```bash
+   npm uninstall -g figment-mcp
+   npm install -g figment-mcp
+   ```
+
+3. **Manual setup**:
+   ```bash
+   figment-setup-direct
+   ```
+
+#### Cursor Integration Issues
+If Cursor doesn't recognize Figment:
+
+1. **Check MCP config**:
+   ```bash
+   cat ~/.cursor/mcp.json
+   ```
+
+2. **Restart Cursor** after installation
+
+3. **Manual config**:
+   ```json
+   {
+     "mcpServers": {
+       "figment": {
+         "command": "figment",
+         "args": []
+       }
+     }
+   }
+   ```
+
+### Figma Plugin Issues
+
+#### Plugin Not Loading
+1. **Clear browser cache** and restart Figma
+2. **Reinstall plugin** from the Community
+3. **Check console** for error messages
+
+#### Export Fails
+1. **Select valid components** (Frames, Components, Groups)
+2. **Check storage quota** in Figma
+3. **Try simple export** first, then real-time export
+
+### Getting Help
+
+If you're still experiencing issues:
+
+1. **Check the logs**:
+   ```bash
+   figment-bridge:logs
+   ```
+
+2. **Run diagnostics**:
+   ```bash
+   npm run test:package
+   ```
+
+3. **Open an issue** on GitHub with:
+   - Node.js version: `node --version`
+   - OS: `uname -a`
+   - Error logs
+   - Steps to reproduce
 
 ## Quick Start
 

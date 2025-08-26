@@ -3,7 +3,7 @@
     "figma-figment-bridge": {
       "command": "node",
       "args": [
-        "/Users/robbandi/Documents/GitHub/Figment-Clean/dist/mcp-server.js"
+        "/Users/persona/Documents/GitHub/Figment/dist/mcp-server.js"
       ],
       "env": {
         "NODE_ENV": "production"
