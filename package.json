@@ -1,6 +1,6 @@
 {
   "name": "figment-mcp",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Universal Figma to Code Bridge with AI Integration - Transform Figma designs into production-ready code using Model Context Protocol (MCP)",
   "main": "scripts/setup.js",
   "bin": {
