@@ -8,7 +8,8 @@
   "main": "build/main.js",
   "ui": "build/ui.js",
   "networkAccess": {
-    "allowedDomains": ["localhost", "127.0.0.1"]
+    "allowedDomains": ["localhost", "127.0.0.1"],
+    "reasoning": "Development and local testing access"
   },
   "documentAccess": "dynamic-page"
 }
