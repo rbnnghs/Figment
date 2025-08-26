@@ -1321,7 +1321,7 @@ async function extractVisualProperties(node: any): Promise<VisualProperties> {
             fillProp.color = rgbaToHex(fill.color)
             fillProp.fallbackColor = rgbaToHex(fill.color)
             if (fill.styleId) {
-              const style = figma.getStyleById(fill.styleId)
+              const style = await figma.getStyleByIdAsync(fill.styleId)
               if (style) {
                 fillProp.token = style.name
               }
@@ -1358,7 +1358,7 @@ async function extractVisualProperties(node: any): Promise<VisualProperties> {
           strokeProp.color = rgbaToHex(stroke.color)
           strokeProp.fallbackColor = rgbaToHex(stroke.color)
           if (stroke.styleId) {
-            const style = figma.getStyleById(stroke.styleId)
+            const style = await figma.getStyleByIdAsync(stroke.styleId)
             if (style) {
               strokeProp.token = style.name
             }
@@ -1453,7 +1453,7 @@ async function extractTypographyProperties(node: any): Promise<TypographyPropert
 
       // Check if text style is linked for tokenized typography
       if (node.styleId) {
-        const style = figma.getStyleById(node.styleId)
+        const style = await figma.getStyleByIdAsync(node.styleId)
         if (style) {
           typography.textStyleId = node.styleId
           typography.font!.token = style.name
@@ -1471,7 +1471,7 @@ async function extractTypographyProperties(node: any): Promise<TypographyPropert
       const textFill = node.fills[0]
       if (textFill.type === 'SOLID' && textFill.visible !== false) {
         typography.textColor = rgbaToHex(textFill.color)
-        typography.textColorToken = textFill.styleId ? figma.getStyleById(textFill.styleId)?.name : undefined
+        typography.textColorToken = textFill.styleId ? (await figma.getStyleByIdAsync(textFill.styleId))?.name : undefined
         typography.textColorFallback = rgbaToHex(textFill.color)
       }
     }
@@ -1945,7 +1945,7 @@ async function extractTokenMapping(node: any): Promise<Record<string, string> | 
     if ('fills' in node && node.fills) {
       for (const fill of node.fills) {
         if (fill.styleId) {
-          const style = figma.getStyleById(fill.styleId)
+          const style = await figma.getStyleByIdAsync(fill.styleId)
           if (style) {
             tokenMapping.background = style.name
           }
@@ -1956,7 +1956,7 @@ async function extractTokenMapping(node: any): Promise<Record<string, string> | 
     if ('strokes' in node && node.strokes) {
       for (const stroke of node.strokes) {
         if (stroke.styleId) {
-          const style = figma.getStyleById(stroke.styleId)
+          const style = await figma.getStyleByIdAsync(stroke.styleId)
           if (style) {
             tokenMapping.border = style.name
           }
@@ -1965,7 +1965,7 @@ async function extractTokenMapping(node: any): Promise<Record<string, string> | 
     }
 
     if ('styleId' in node && node.styleId) {
-      const style = figma.getStyleById(node.styleId)
+      const style = await figma.getStyleByIdAsync(node.styleId)
       if (style) {
         tokenMapping.text = style.name
       }
@@ -1975,7 +1975,7 @@ async function extractTokenMapping(node: any): Promise<Record<string, string> | 
     if ('effects' in node && node.effects) {
       for (const effect of node.effects) {
         if (effect.styleId) {
-          const style = figma.getStyleById(effect.styleId)
+          const style = await figma.getStyleByIdAsync(effect.styleId)
           if (style) {
             tokenMapping.effect = style.name
           }
@@ -2550,8 +2550,8 @@ async function extractComponentRelationships(node: any): Promise<ComponentRelati
     node.effectStyleId
   ].filter(Boolean);
   
-  relationships.styleReferences = styleIds.map(styleId => {
-    const style = figma.getStyleById(styleId);
+  relationships.styleReferences = await Promise.all(styleIds.map(async (styleId) => {
+    const style = await figma.getStyleByIdAsync(styleId);
     return {
       id: styleId,
       name: style?.name || 'Unknown Style',
@@ -2559,7 +2559,7 @@ async function extractComponentRelationships(node: any): Promise<ComponentRelati
       description: style?.description,
       remote: false // Would need to check if style is from external library
     };
-  });
+  }));
   
   return relationships;
 }

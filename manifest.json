@@ -8,13 +8,12 @@
   "main": "build/main.js",
   "ui": "build/ui.js",
   "networkAccess": {
-    "allowedDomains": [
-      "http://localhost",
-      "http://127.0.0.1",
-      "https://localhost",
-      "https://127.0.0.1"
+    "allowedDomains": ["none"],
+    "devAllowedDomains": [
+      "http://localhost:3000",
+      "http://localhost:8473"
     ],
-    "reasoning": "Development and local testing access"
+    "reasoning": "Development access for bridge server communication (port 3000) and export/health check endpoints (port 8473)"
   },
   "documentAccess": "dynamic-page"
 }

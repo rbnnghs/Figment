@@ -69,6 +69,23 @@ for (const dep of requiredDeps) {
 
 console.log('✅ All required dependencies found');
 
+// Ensure build directory exists and copy manifest
+const buildDir = path.join(process.cwd(), 'build');
+const manifestSrc = path.join(process.cwd(), 'manifest.json');
+const manifestDest = path.join(buildDir, 'manifest.json');
+
+if (!fs.existsSync(buildDir)) {
+  fs.mkdirSync(buildDir, { recursive: true });
+}
+
+if (fs.existsSync(manifestSrc)) {
+  console.log('📋 Copying manifest.json to build directory...');
+  fs.copyFileSync(manifestSrc, manifestDest);
+  console.log('✅ Manifest copied to build directory');
+} else {
+  console.warn('⚠️  manifest.json not found in root directory');
+}
+
 // Helper function to compare versions
 function compareVersions(v1, v2) {
   const parts1 = v1.split('.').map(Number);

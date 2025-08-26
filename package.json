@@ -22,7 +22,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "node scripts/pre-build.js && npm run build:figma && npm run build:mcp",
+    "build": "node scripts/pre-build.js && npm run build:figma && node scripts/post-build.js && npm run build:mcp",
     "build:figma": "npx @create-figma-plugin/build",
     "build:mcp": "tsx scripts/build-mcp-server.js",
     "check-node": "node scripts/check-node-version.js",
@@ -108,8 +108,9 @@
     "main": "src/main.ts",
     "ui": "src/ui.tsx",
     "networkAccess": {
-      "allowedDomains": ["localhost", "127.0.0.1"],
-      "reasoning": "Development and local testing access"
+      "allowedDomains": ["none"],
+      "devAllowedDomains": ["http://localhost", "https://localhost", "http://localhost:3000", "https://localhost:3000", "http://localhost:8473", "https://localhost:8473"],
+      "reasoning": "Development and local testing access for MCP server communication and bridge server"
     },
     "documentAccess": "dynamic-page"
   },

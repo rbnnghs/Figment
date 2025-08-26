@@ -574,7 +574,7 @@ async function extractDesignSystem() {
   const breakpoints = []
 
   // Extract colors from styles
-  const colorStyles = figma.getLocalPaintStyles()
+  const colorStyles = await figma.getLocalPaintStylesAsync()
   for (const style of colorStyles) {
     if (style.paints && style.paints.length > 0) {
       const paint = style.paints[0]
@@ -589,7 +589,7 @@ async function extractDesignSystem() {
   }
 
   // Extract typography from text styles
-  const textStyles = figma.getLocalTextStyles()
+  const textStyles = await figma.getLocalTextStylesAsync()
   for (const style of textStyles) {
     typography.push({
       name: style.name,
