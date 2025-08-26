@@ -42,10 +42,14 @@ function checkNodeVersion() {
   const version = process.version;
   const major = parseInt(version.slice(1).split('.')[0]);
   
-  if (major < 20) {
-    console.error('❌ Node.js 20 or higher is required');
+  if (major < 22) {
+    console.error('❌ Node.js 22 or higher is required for Figment');
     console.error(`Current version: ${version}`);
-    console.log('💡 You can continue, but some features may not work optimally');
+    console.log('\n💡 To fix this:');
+    console.log('   1) Using nvm (recommended): nvm install 22 && nvm use 22');
+    console.log('   2) Or download from: https://nodejs.org/ (use 22.x LTS)');
+    console.log('\nYou can also run: npm run check-node');
+    process.exit(1);
   }
   
   console.log(`✅ Node.js version: ${version}`);
@@ -55,10 +59,7 @@ function checkPackageInstallation() {
   console.log('\n📦 Checking package installation...');
   
   if (!fs.existsSync(MCP_SERVER_PATH)) {
-    console.error('❌ Figment MCP server not found');
-    console.error('This usually means the package was not installed correctly');
-    console.error('Try reinstalling: npm install -g figment');
-    process.exit(1);
+    console.log('ℹ️  Figment MCP server not built yet. Will build during setup.');
   }
   
   console.log('✅ Figment MCP server found');
@@ -258,6 +259,50 @@ function ensureMCPExecutable() {
   }
 }
 
+function installDependencies() {
+  console.log('\n📦 Installing dependencies (if needed)...');
+  try {
+    execSync('npm install', { stdio: 'inherit' });
+    console.log('✅ Dependencies installed');
+  } catch (error) {
+    console.error('❌ Failed to install dependencies');
+    throw error;
+  }
+}
+
+function runPreBuildChecks() {
+  console.log('\n🧪 Running pre-build checks...');
+  try {
+    execSync('node scripts/pre-build.js', { stdio: 'inherit' });
+    console.log('✅ Pre-build checks passed');
+  } catch (error) {
+    console.error('❌ Pre-build checks failed');
+    throw error;
+  }
+}
+
+function buildFigmaPlugin() {
+  console.log('\n🛠️  Building Figma plugin...');
+  try {
+    execSync('npm run build:figma', { stdio: 'inherit' });
+    console.log('✅ Figma plugin built');
+  } catch (error) {
+    console.error('❌ Figma plugin build failed');
+    throw error;
+  }
+}
+
+function buildMCPServer() {
+  console.log('\n🛠️  Building MCP server...');
+  try {
+    execSync('npm run build:mcp', { stdio: 'inherit' });
+    console.log('✅ MCP server built');
+  } catch (error) {
+    console.error('❌ MCP server build failed');
+    throw error;
+  }
+}
+
 function checkGlobalInstallation() {
   console.log('\n🌐 Checking global installation...');
   
@@ -301,7 +346,7 @@ function showNextSteps() {
   console.log('5. Use MCP tools to generate code from your designs');
   
   console.log('\n🔧 Manual Bridge Server (Optional):');
-  console.log('npm run bridge:start');
+  console.log('npm run bridge');
   
   console.log('\n📁 Export Directory:');
   console.log(EXPORT_DIR);
@@ -332,6 +377,10 @@ async function main() {
     checkPackageInstallation();
     checkAndFixPATH(); // Call the new function here
     setupExportDirectory();
+    installDependencies();
+    runPreBuildChecks();
+    buildFigmaPlugin();
+    buildMCPServer();
     setupCursorMCP();
     setupClaudeMCP();
     setupContinueMCP();

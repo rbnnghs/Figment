@@ -6,8 +6,12 @@ Thank you for your interest in contributing to Figment! This document provides g
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally
-3. **Install dependencies**: `npm install`
-4. **Build the project**: `npm run build`
+3. **Check Node.js version**: Ensure you have Node.js 22.0.0 or higher
+4. **Install dependencies**: `npm install`
+5. **Run pre-build checks**: `node scripts/pre-build.js`
+6. **Build the project**: `npm run build`
+
+> **Note**: For detailed development setup instructions, see [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ## Development Setup
 

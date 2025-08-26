@@ -22,8 +22,10 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "npx @create-figma-plugin/build && npm run build:mcp",
+    "build": "node scripts/pre-build.js && npm run build:figma && npm run build:mcp",
+    "build:figma": "npx @create-figma-plugin/build",
     "build:mcp": "tsx scripts/build-mcp-server.js",
+    "check-node": "node scripts/check-node-version.js",
     "dev": "npx @create-figma-plugin/build --watch",
     "watch": "npx @create-figma-plugin/build --watch",
     "setup": "node scripts/setup.js",
@@ -107,7 +109,7 @@
     "ui": "src/ui.tsx"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "os": [
     "darwin",
