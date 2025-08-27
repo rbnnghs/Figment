@@ -6,7 +6,7 @@ Transform your Figma designs into production-ready code with the power of AI. Fi
 
 "Figment is not affiliated with, endorsed by, or sponsored by Figma, Inc."
 
-[![Figma Plugin](https://img.shields.io/badge/Figma-Plugin-blue?logo=figma)](https://www.figma.com/community/plugin/figment)
+[![Figma Plugin](https://img.shields.io/badge/Figma-Plugin-blue?logo=figma)](https://www.figma.com/community/plugin/1542156801194310914/figment)
 [![npm version](https://img.shields.io/npm/v/figment-mcp.svg)](https://www.npmjs.com/package/figment-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js CI](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
