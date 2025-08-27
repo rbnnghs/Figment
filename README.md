@@ -4,6 +4,8 @@
 
 Transform your Figma designs into production-ready code with the power of AI. Figment bridges the gap between design and development by providing a comprehensive design-to-code workflow that works with any IDE or development environment.
 
+"Figment is not affiliated with, endorsed by, or sponsored by Figma, Inc."
+
 [![Figma Plugin](https://img.shields.io/badge/Figma-Plugin-blue?logo=figma)](https://www.figma.com/community/plugin/figment)
 [![npm version](https://img.shields.io/npm/v/figment-mcp.svg)](https://www.npmjs.com/package/figment-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
