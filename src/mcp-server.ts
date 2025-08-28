@@ -1856,6 +1856,16 @@ function convertToSVGPath(component: any): string {
     return component.vectorPaths.map((path: any) => path.data || '').join(' ');
   }
   
+  // Handle complex SVG components with multiple paths
+  if (component.children && component.children.length > 0) {
+    const childPaths = component.children
+      .filter((child: any) => child.vectorPaths && child.vectorPaths.length > 0)
+      .map((child: any) => child.vectorPaths.map((path: any) => path.data || '').join(' '))
+      .join(' ');
+    
+    if (childPaths) return childPaths;
+  }
+  
   // Fallback to rectangle
   return `M 0 0 L ${component.width || 0} 0 L ${component.width || 0} ${component.height || 0} L 0 ${component.height || 0} Z`;
 }
@@ -2026,6 +2036,39 @@ function extractDesignTokens(component: any) {
   };
 }
 
+function generateMultiPathSVG(enhancedData: any, colors: any, styles: any): string {
+  const { visualData } = enhancedData;
+  
+  // If we have multiple children with vector paths, generate multiple path elements
+  if (visualData.children && visualData.children.length > 0) {
+    return visualData.children
+      .filter((child: any) => child.visuals?.fills && child.visuals.fills.length > 0)
+      .map((child: any, index: number) => {
+        const fill = child.visuals.fills[0];
+        const pathData = child.vectorPaths?.[0]?.data || '';
+        const fillColor = fill.type === 'SOLID' ? 
+          (typeof fill.color === 'string' ? fill.color : rgbaToHex(fill.color.r, fill.color.g, fill.color.b, fill.color.a || 1)) : 
+          colors.primary;
+        
+        return `<path 
+          d="${pathData}"
+          fill="${fillColor}"
+          stroke="${colors.border || 'none'}"
+          strokeWidth="${styles.designTokens?.borders?.width || 0}"
+        />`;
+      })
+      .join('\n        ');
+  }
+  
+  // Fallback to single path
+  return `<path 
+    d="${enhancedData.vectorPaths?.svgPath || ''}"
+    fill="${colors.primary}"
+    stroke="${colors.border || 'none'}"
+    strokeWidth="${styles.designTokens?.borders?.width || 0}"
+  />`;
+}
+
 function generateEnhancedReactComponent(enhancedData: any): string {
   const { metadata, positioning, vectorPaths, colors, styles, visualData } = enhancedData;
   
@@ -2078,12 +2121,7 @@ export const ${metadata.name.replace(/[^a-zA-Z0-9]/g, '')}Component: React.FC = 
         viewBox="0 0 ${positioning.absolute.width} ${positioning.absolute.height}"
         style={{ position: 'absolute', top: 0, left: 0 }}
       >
-        <path 
-          d="${vectorPaths.svgPath}"
-          fill="${colors.primary}"
-          stroke="${colors.border}"
-          strokeWidth="${styles.designTokens?.borders?.width || 0}"
-        />
+        ${generateMultiPathSVG(enhancedData, colors, styles)}
       </svg>` : ''}
     </div>
   );
