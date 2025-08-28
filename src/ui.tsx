@@ -139,6 +139,11 @@ const DesignBlueprintExporter = () => {
   
   // Enhanced UI state
   const [hoveredElementInfo, setHoveredElementInfo] = useState<{element: any, x: number, y: number} | null>(null);
+  const [selectionIssue, setSelectionIssue] = useState<boolean>(false);
+  
+  // Loading state for node processing
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string>('');
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -146,18 +151,35 @@ const DesignBlueprintExporter = () => {
       
       if (message && message.type === 'blueprint-data') {
         setSelectedNode(message.data);
+        setSelectionIssue(false);
+        setIsProcessing(false);
+        setProcessingStatus('');
       } else if (message && message.type === 'download-triggered') {
         handleExport();
       } else if (message && message.type === 'copy-triggered') {
         handleCopy();
       } else if (message && message.type === 'figment-export-ready') {
-  handleFigmentExportReady(message.data, message.token);
+        handleFigmentExportReady(message.data, message.token);
+      } else if (message && message.type === 'selection-issue') {
+        setSelectionIssue(true);
+        setIsProcessing(false);
+        setProcessingStatus('');
+      } else if (message && message.type === 'processing-started') {
+        setIsProcessing(true);
+        setProcessingStatus(message.status || 'Processing selection...');
+      } else if (message && message.type === 'processing-update') {
+        setProcessingStatus(message.status || 'Processing...');
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  // Force refresh selection
+  const handleForceRefresh = () => {
+    parent.postMessage({ pluginMessage: { type: 'force-selection-refresh' } }, '*');
+  };
 
     const handleExport = (format?: 'json' | 'yaml') => {
     if (!selectedNode) {
@@ -258,7 +280,12 @@ const DesignBlueprintExporter = () => {
     
     // Always copy token to clipboard first (primary UX)
     if (token) {
-      handleTokenCopy(token);
+      try {
+        await handleTokenCopy(token);
+      } catch (error) {
+        console.error('❌ Token copy failed:', error);
+        // Don't throw - continue with export process
+      }
     }
     
     // Try to send to bridge server for MCP availability (secondary)
@@ -368,34 +395,48 @@ const DesignBlueprintExporter = () => {
         console.log('✅ Using modern clipboard API');
         await navigator.clipboard.writeText(token);
         console.log('✅ Token copied to clipboard successfully');
-        // showSuccessNotification(`✅ Token copied: ${token}\n\nReady for immediate use with any AI assistant or MCP-compatible tool!`);
-      } else {
-        // Fallback for older browsers or non-secure contexts
-        console.log('⚠️ Using fallback clipboard method');
-        const textArea = document.createElement('textarea');
-        textArea.value = token;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        textArea.style.top = '-999999px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        
-        const copied = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        
-        if (copied) {
-          console.log('✅ Token copied using fallback method');
-          // showSuccessNotification(`✅ Token copied: ${token}\n\nReady for immediate use with any AI assistant or MCP-compatible tool!`);
-        } else {
-          throw new Error('Copy command failed');
-        }
+        // showSuccessNotification('✅ Token copied to clipboard!');
+        return;
       }
-    } catch (error) {
-      console.error('❌ Failed to copy token:', error);
-      // Show token in a way user can manually copy
-      showTokenDialog(token);
+    } catch (clipboardError) {
+      console.warn('⚠️ Modern clipboard API failed:', clipboardError);
     }
+    
+    try {
+      // Fallback for older browsers or non-secure contexts
+      console.log('⚠️ Using fallback clipboard method');
+      const textArea = document.createElement('textarea');
+      textArea.value = token;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      textArea.style.opacity = '0';
+      textArea.setAttribute('readonly', '');
+      document.body.appendChild(textArea);
+      
+      // Try to focus and select
+      textArea.focus();
+      textArea.select();
+      textArea.setSelectionRange(0, token.length);
+      
+      // Attempt copy
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      
+      if (copied) {
+        console.log('✅ Token copied using fallback method');
+        // showSuccessNotification('✅ Token copied to clipboard!');
+        return;
+      } else {
+        throw new Error('execCommand copy returned false');
+      }
+    } catch (fallbackError) {
+      console.error('❌ Fallback clipboard method failed:', fallbackError);
+    }
+    
+    // Final fallback - show token dialog for manual copying
+    console.log('ℹ️ All clipboard methods failed, showing manual copy dialog');
+    showTokenDialog(token);
   };
 
   const showTokenDialog = (token: string) => {
@@ -2834,6 +2875,13 @@ type ModalAnimation = 'fade' | 'slide' | 'scale';`);
       position: 'relative',
       boxSizing: 'border-box'
     }}>
+      {/* CSS Animation for spinner */}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
 
 
       {/* Export Section */}
@@ -2936,6 +2984,35 @@ type ModalAnimation = 'fade' | 'slide' | 'scale';`);
           </div>
 
 
+        </div>
+      ) : isProcessing ? (
+        <div style={{
+          padding: '20px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--figma-color-text)',
+          fontSize: '11px',
+          textAlign: 'center',
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden'
+        }}>
+          {/* Animated loading spinner */}
+          <div style={{
+            width: '24px',
+            height: '24px',
+            border: '2px solid var(--figma-color-border)',
+            borderTop: '2px solid var(--figma-color-bg-brand)',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            marginBottom: '12px'
+          }} />
+          <div style={{ fontWeight: '500', marginBottom: '4px' }}>Processing...</div>
+          <div style={{ fontSize: '10px', opacity: 0.7, maxWidth: '180px', lineHeight: '1.3' }}>
+            {processingStatus || 'Extracting design data...'}
+          </div>
         </div>
       ) : (
         <div style={{
@@ -3172,6 +3249,106 @@ type ModalAnimation = 'fade' | 'slide' | 'scale';`);
               {hoveredElementInfo.element.layout.gap && ` • ${hoveredElementInfo.element.layout.gap} gap`}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Selection Troubleshooting */}
+      {selectionIssue && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'var(--figma-color-bg)',
+          border: '1px solid var(--figma-color-border)',
+          borderRadius: '8px',
+          padding: '16px',
+          maxWidth: '300px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+          zIndex: 1000
+        }}>
+          <div style={{ marginBottom: '12px' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '600' }}>
+              🔧 Selection Troubleshooting
+            </h3>
+            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--figma-color-text-secondary)' }}>
+              Having trouble selecting variants, groups, or complex components?
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '12px' }}>
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '11px', fontWeight: '600' }}>Try these solutions:</h4>
+            <ul style={{ margin: '0', paddingLeft: '16px', fontSize: '11px', lineHeight: '1.4' }}>
+              <li>Use the <strong>Layers panel</strong> (⌘+Y) to select from hierarchy</li>
+              <li>Double-click to enter edit mode, then exit</li>
+              <li>Right-click and select from context menu</li>
+              <li>Try the <strong>Move tool</strong> (V) and click on component</li>
+              <li>Select parent frame first, then drill down</li>
+            </ul>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleForceRefresh}
+              style={{
+                background: 'var(--figma-color-bg-brand)',
+                color: 'var(--figma-color-text-onbrand)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Force Refresh
+            </button>
+            <button
+              onClick={() => {
+                parent.postMessage({ pluginMessage: { type: 'select-parent-component' } }, '*');
+              }}
+              style={{
+                background: 'var(--figma-color-bg-accent)',
+                color: 'var(--figma-color-text-onaccent)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              🔍 Find Parent
+            </button>
+            <button
+              onClick={() => {
+                parent.postMessage({ pluginMessage: { type: 'debug-selection' } }, '*');
+              }}
+              style={{
+                background: 'var(--figma-color-bg-secondary)',
+                color: 'var(--figma-color-text)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              🐛 Debug
+            </button>
+            <button
+              onClick={() => setSelectionIssue(false)}
+              style={{
+                background: 'var(--figma-color-bg-secondary)',
+                color: 'var(--figma-color-text)',
+                border: 'none',
+                borderRadius: '4px',
+                padding: '6px 12px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -346,6 +346,9 @@ export interface DesignBlueprint {
   preciseTypography?: PreciseTypographyProperties
   componentRelationships?: ComponentRelationships
   designContext?: DesignContext
+  
+  // 100% design data fidelity
+  comprehensiveDesignData?: any
 }
 
 export interface VisualProperties {
@@ -651,6 +654,13 @@ export interface GeometryProperties {
   handleMirroring?: string
   strokeStyleId?: string
   fillStyleId?: string
+  // Enhanced for 100% fidelity
+  svgData?: SVGExportData
+  preciseCoordinates?: PreciseCoordinates
+  pathCommands?: PathCommand[]
+  boundingBox?: BoundingBox
+  clipPath?: string
+  maskData?: MaskData
 }
 
 export interface VectorPath {
@@ -698,6 +708,113 @@ export interface TransformMatrix {
   d: number
   tx: number
   ty: number
+}
+
+// Enhanced interfaces for 100% design data fidelity
+export interface SVGExportData {
+  viewBox: string
+  width: number
+  height: number
+  svgContent: string
+  paths: SVGPath[]
+  preserveAspectRatio?: string
+}
+
+export interface SVGPath {
+  d: string // Path data
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
+  strokeLinecap?: string
+  strokeLinejoin?: string
+  strokeDasharray?: string
+  fillRule?: string
+  opacity?: number
+  transform?: string
+}
+
+export interface PreciseCoordinates {
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  scaleX: number
+  scaleY: number
+  skewX: number
+  skewY: number
+  originX: number
+  originY: number
+}
+
+export interface PathCommand {
+  command: string // M, L, C, Q, A, Z etc.
+  coordinates: number[]
+  relative: boolean
+}
+
+export interface BoundingBox {
+  x: number
+  y: number
+  width: number
+  height: number
+  left: number
+  top: number
+  right: number
+  bottom: number
+  centerX: number
+  centerY: number
+  pixelBounds?: {
+    left: number
+    top: number
+    right: number
+    bottom: number
+  }
+}
+
+export interface MaskData {
+  type: 'alpha' | 'vector' | 'outline'
+  path?: string
+  opacity?: number
+  inverted?: boolean
+}
+
+export interface DetailedFillProperty extends FillProperty {
+  // Enhanced fill properties for 100% fidelity
+  imageHash?: string
+  imageUrl?: string
+  videoHash?: string
+  scaleMode?: string
+  detailedImageTransform?: number[]
+  filters?: FilterProperty[]
+  blendMode?: string
+  opacity?: number
+  gradientHandlePositions?: any[]
+}
+
+export interface FilterProperty {
+  type: string
+  value: number
+  unit?: string
+}
+
+export interface PreciseGradientProperty {
+  type: 'linear' | 'radial' | 'angular' | 'diamond'
+  stops: PreciseGradientStop[]
+  transform: number[]
+  opacity?: number
+  blendMode?: string
+}
+
+export interface PreciseGradientStop {
+  position: number
+  color: {
+    r: number
+    g: number
+    b: number
+    a: number
+  }
+  midpoint?: number
 }
 
 export interface SizeProperties {
@@ -752,11 +869,13 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
       node.type === 'FRAME' ? 'container' :
       node.type === 'INSTANCE' ? 'instance' :
       node.type === 'COMPONENT' ? 'component' :
+      node.type === 'COMPONENT_SET' ? 'variant-group' :
       undefined,
     componentType: sectionType ? sectionType :
-      (node.type === 'COMPONENT' ? 'other' : undefined),
+      (node.type === 'COMPONENT' ? 'other' : 
+       node.type === 'COMPONENT_SET' ? 'other' : undefined),
     isInteractive: node.reactions && node.reactions.length > 0,
-    isReusable: node.type === 'COMPONENT' || node.type === 'INSTANCE',
+    isReusable: node.type === 'COMPONENT' || node.type === 'INSTANCE' || node.type === 'COMPONENT_SET',
     isResponsive: node.layoutMode && node.layoutMode !== 'NONE',
     // Additional semantic fields
     isContainer: node.children && node.children.length > 0,
@@ -764,6 +883,7 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
     hasInteractions: !!(node.reactions && node.reactions.length > 0),
     hasHoverState: !!(node.reactions && node.reactions.some((r: any) => r.trigger.type === 'ON_HOVER')),
     hasClickHandler: !!(node.reactions && node.reactions.some((r: any) => r.trigger.type === 'ON_CLICK')),
+
   };
 
   // Group-level metadata
@@ -1013,9 +1133,18 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
   }
 
   // --- Component Usage Reference (Design System Alignment) ---
-  const componentReference = node.type === 'INSTANCE' && node.mainComponent ? node.mainComponent.name : 
-                            node.type === 'COMPONENT' ? node.name :
-                            undefined;
+  let componentReference: string | undefined = undefined;
+  if (node.type === 'INSTANCE') {
+    try {
+      const mainComponent = await node.getMainComponentAsync();
+      componentReference = mainComponent ? mainComponent.name : node.name;
+    } catch (error) {
+      console.warn('Could not get main component for reference:', node.name, error);
+      componentReference = node.name;
+    }
+  } else if (node.type === 'COMPONENT') {
+    componentReference = node.name;
+  }
 
   // --- Enhanced Token Mapping with Fallbacks ---
   const enhancedTokenMapping = await extractTokenMapping(node);
@@ -1082,6 +1211,16 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
       mobile: null,
       tablet: null,
       desktop: null
+    },
+    components: {
+      button: enhancedTokenMapping?.component || null,
+      input: enhancedTokenMapping?.component || null,
+      card: enhancedTokenMapping?.component || null
+    },
+    effects: {
+      shadow: enhancedTokenMapping?.shadow || null,
+      blur: enhancedTokenMapping?.effect || null,
+      overlay: enhancedTokenMapping?.effect || null
     }
   };
 
@@ -1134,8 +1273,15 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
 
   // --- Enhanced Component Reference (Design System Alignment) ---
   let enhancedComponentReference = undefined;
-  if (node.type === 'INSTANCE' && node.mainComponent) {
-    enhancedComponentReference = node.mainComponent.name;
+  if (node.type === 'INSTANCE') {
+    try {
+      const mainComponent = await node.getMainComponentAsync();
+      if (mainComponent) {
+        enhancedComponentReference = mainComponent.name;
+      }
+    } catch (error) {
+      console.warn('Could not get main component for enhanced reference:', node.name, error);
+    }
   } else if (node.type === 'COMPONENT') {
     enhancedComponentReference = node.name;
   } else {
@@ -1185,6 +1331,9 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
   const designIntent = `${sectionType || 'component'} with ${node.children?.length || 0} children`;
   const importance = node.reactions && node.reactions.length > 0 ? 'high' : 
                     node.type === 'COMPONENT' ? 'medium' : 'low';
+
+  // Extract comprehensive design data for 100% fidelity
+  const comprehensiveData = await extractComprehensiveDesignData(node);
 
   const blueprint: DesignBlueprint = {
     component: node.name,
@@ -1257,14 +1406,114 @@ export async function extractDesignBlueprint(node: any): Promise<DesignBlueprint
     preciseTypography,
     componentRelationships,
     designContext,
+    
+    // 100% design data fidelity - comprehensive extraction
+    comprehensiveDesignData: comprehensiveData
   }
 
-  // Extract component variant information
-  if (node.type === 'INSTANCE' && node.mainComponent) {
-    blueprint.variant = node.mainComponent.name
-    blueprint.description = node.mainComponent.description || undefined
-  } else if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+  // Extract component variant information (using async API)
+  if (node.type === 'INSTANCE') {
+    try {
+      const mainComponent = await node.getMainComponentAsync();
+      if (mainComponent) {
+        blueprint.variant = mainComponent.name
+        blueprint.description = mainComponent.description || undefined
+      }
+    } catch (error) {
+      console.warn('Could not get main component for variant info:', node.name, error);
+    }
+    
+    // Extract variant properties from instance
+    if (node.componentProperties) {
+      const variantProps: VariantProperty[] = []
+      for (const [key, value] of Object.entries(node.componentProperties)) {
+        const prop = value as any
+        variantProps.push({
+          name: key,
+          value: prop.value,
+          type: prop.type || 'variant',
+          defaultValue: prop.defaultValue || prop.value,
+          options: prop.preferredValues || undefined
+        })
+      }
+      blueprint.componentRelationships = blueprint.componentRelationships || {
+        childComponents: [],
+        siblingComponents: [],
+        instanceOverrides: [],
+        variantProperties: variantProps,
+        designSystemPath: [],
+        styleReferences: [],
+        tokenReferences: [],
+        usageInstances: [],
+        dependentComponents: [],
+        lastModified: new Date().toISOString(),
+        creator: 'Unknown'
+      }
+      blueprint.componentRelationships.variantProperties = variantProps
+    }
+  } else if (node.type === 'COMPONENT_SET') {
+    // Handle component sets (variant groups)
     blueprint.description = node.description || undefined
+    blueprint.variant = 'component-set'
+    
+    // Extract all variants from the component set
+    if (node.children && node.children.length > 0) {
+      const variants: string[] = []
+      const variantProperties: VariantProperty[] = []
+      
+      // Analyze children to determine variant properties
+      for (const child of node.children) {
+        if (child.type === 'COMPONENT') {
+          variants.push(child.name)
+          
+          // Extract variant properties from component name patterns
+          const nameParts = child.name.split(', ')
+          for (const part of nameParts) {
+            if (part.includes('=')) {
+              const [propName, propValue] = part.split('=')
+              const existingProp = variantProperties.find(p => p.name === propName.trim())
+              if (!existingProp) {
+                variantProperties.push({
+                  name: propName.trim(),
+                  value: propValue.trim(),
+                  type: 'variant',
+                  defaultValue: propValue.trim(),
+                  options: [propValue.trim()]
+                })
+              } else {
+                existingProp.options = existingProp.options || []
+                if (!existingProp.options.includes(propValue.trim())) {
+                  existingProp.options.push(propValue.trim())
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      blueprint.variantStates = variants
+      blueprint.componentRelationships = blueprint.componentRelationships || {
+        childComponents: [],
+        siblingComponents: [],
+        instanceOverrides: [],
+        variantProperties: variantProperties,
+        designSystemPath: [],
+        styleReferences: [],
+        tokenReferences: [],
+        usageInstances: [],
+        dependentComponents: [],
+        lastModified: new Date().toISOString(),
+        creator: 'Unknown'
+      }
+      blueprint.componentRelationships.variantProperties = variantProperties
+    }
+  } else if (node.type === 'COMPONENT') {
+    blueprint.description = node.description || undefined
+    // Check if this component is part of a variant group
+    if (node.parent && node.parent.type === 'COMPONENT_SET') {
+      blueprint.variant = 'variant'
+      blueprint.variantStates = [node.name]
+    }
   }
 
   // Extract typography if it's a text node or has text children
@@ -1396,7 +1645,9 @@ async function extractVisualProperties(node: any): Promise<VisualProperties> {
     }
 
     // Extract stroke properties
-    if ('strokeWeight' in node) visuals.strokeWeight = node.strokeWeight
+    if ('strokeWeight' in node && typeof node.strokeWeight === 'number') {
+      visuals.strokeWeight = node.strokeWeight
+    }
     if ('strokeAlign' in node) visuals.strokeAlign = node.strokeAlign
     if ('strokeCap' in node) visuals.strokeCap = node.strokeCap
     if ('strokeJoin' in node) visuals.strokeJoin = node.strokeJoin
@@ -1718,7 +1969,9 @@ async function extractGeometryProperties(node: any): Promise<GeometryProperties 
     }
 
     // Extract stroke properties
-    if ('strokeWeight' in node) geometry.strokeWeight = node.strokeWeight
+    if ('strokeWeight' in node && typeof node.strokeWeight === 'number') {
+      geometry.strokeWeight = node.strokeWeight
+    }
     if ('strokeAlign' in node) geometry.strokeAlign = node.strokeAlign
     if ('strokeCap' in node) geometry.strokeCap = node.strokeCap
     if ('strokeJoin' in node) geometry.strokeJoin = node.strokeJoin
@@ -1773,11 +2026,518 @@ async function extractGeometryProperties(node: any): Promise<GeometryProperties 
     if ('strokeStyleId' in node && node.strokeStyleId) geometry.strokeStyleId = node.strokeStyleId
     if ('fillStyleId' in node && node.fillStyleId) geometry.fillStyleId = node.fillStyleId
 
+    // Enhanced extraction for 100% design data fidelity
+    await enhanceGeometryWithDetailedData(node, geometry);
+
     return Object.keys(geometry).length > 0 ? geometry : undefined
   } catch (error) {
     console.error('Error extracting geometry properties:', error)
     return undefined
   }
+}
+
+// Enhanced geometry extraction for 100% design data fidelity
+async function enhanceGeometryWithDetailedData(node: any, geometry: GeometryProperties): Promise<void> {
+  try {
+    // Extract detailed bounding box
+    if ('width' in node && 'height' in node) {
+      const x = node.x || 0;
+      const y = node.y || 0;
+      const width = node.width;
+      const height = node.height;
+      
+      geometry.boundingBox = {
+        x,
+        y,
+        width,
+        height,
+        left: x,
+        top: y,
+        right: x + width,
+        bottom: y + height,
+        centerX: x + width / 2,
+        centerY: y + height / 2,
+        pixelBounds: {
+          left: Math.round(x),
+          top: Math.round(y),
+          right: Math.round(x + width),
+          bottom: Math.round(y + height)
+        }
+      };
+    }
+
+    // Extract precise coordinates and transforms
+    if ('absoluteTransform' in node && node.absoluteTransform) {
+      const transform = node.absoluteTransform;
+      geometry.preciseCoordinates = {
+        x: transform[4] || 0,
+        y: transform[5] || 0,
+        width: node.width || 0,
+        height: node.height || 0,
+        rotation: Math.atan2(transform[1], transform[0]) * (180 / Math.PI),
+        scaleX: Math.sqrt(transform[0] * transform[0] + transform[1] * transform[1]),
+        scaleY: Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3]),
+        skewX: Math.atan2(transform[2], transform[3]) * (180 / Math.PI) - 90,
+        skewY: Math.atan2(transform[1], transform[0]) * (180 / Math.PI),
+        originX: 0, // Default origin
+        originY: 0
+      };
+    }
+
+    // Extract SVG data for vector nodes
+    if (node.type === 'VECTOR' && ('vectorPaths' in node || 'vectorNetwork' in node)) {
+      geometry.svgData = await extractSVGData(node);
+    }
+
+    // Extract detailed path commands for precise reproduction
+    if ('vectorPaths' in node && node.vectorPaths) {
+      geometry.pathCommands = [];
+      for (const path of node.vectorPaths) {
+        if (path.data) {
+          const commands = parsePathData(path.data);
+          geometry.pathCommands.push(...commands);
+        }
+      }
+    }
+
+    // Extract mask data if present
+    if ('clipsContent' in node && node.clipsContent) {
+      geometry.maskData = {
+        type: 'outline',
+        opacity: 1.0,
+        inverted: false
+      };
+    }
+
+    // Extract clip path for complex shapes
+    if (node.type === 'VECTOR' && node.vectorPaths && node.vectorPaths.length > 0) {
+      geometry.clipPath = convertVectorPathToClipPath(node.vectorPaths[0]);
+    }
+
+  } catch (error) {
+    console.error('Error enhancing geometry with detailed data:', error);
+  }
+}
+
+// Extract SVG data with full fidelity
+async function extractSVGData(node: any): Promise<SVGExportData | undefined> {
+  try {
+    const width = node.width || 100;
+    const height = node.height || 100;
+    
+    // VERY RESTRICTIVE: Only export node types that we know will definitely work
+    const definitelyExportableTypes = ['VECTOR', 'TEXT', 'RECTANGLE', 'ELLIPSE', 'POLYGON', 'STAR', 'LINE', 'IMAGE'];
+    
+    // For complex nodes, be much more restrictive
+    const isDefinitelyExportable = definitelyExportableTypes.includes(node.type);
+    
+    // For containers, require very specific conditions
+    const isExportableContainer = (
+      (node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'INSTANCE') &&
+      // Must have visible fills, strokes, or effects
+      (
+        (Array.isArray(node.fills) && node.fills.length > 0 && node.fills.some((fill: any) => fill.visible !== false)) ||
+        (Array.isArray(node.strokes) && node.strokes.length > 0 && node.strokes.some((stroke: any) => stroke.visible !== false)) ||
+        (Array.isArray(node.effects) && node.effects.length > 0 && node.effects.some((effect: any) => effect.visible !== false))
+      ) &&
+      // Must not be too complex (avoid complex instances that often fail)
+      (node.type !== 'INSTANCE' || (node.children && node.children.length <= 5))
+    );
+    
+    if (!isDefinitelyExportable && !isExportableContainer) {
+      // Silent skip for complex nodes that are likely to fail
+      return undefined;
+    }
+    
+    // Skip export for nodes that are unlikely to have visible content
+    if (!node.visible || (node.opacity !== undefined && node.opacity === 0)) {
+      return undefined;
+    }
+    
+    // Additional check for very small or zero-sized nodes
+    const isTooSmallToExport = (
+      (node.width !== undefined && node.width < 1) ||
+      (node.height !== undefined && node.height < 1) ||
+      (node.width === 0 || node.height === 0)
+    );
+    
+    // Skip nodes with clipping masks that have no content
+    const isEmptyMask = (
+      node.isMask && 
+      (!node.children || node.children.length === 0 || 
+       node.children.every((child: any) => !child.visible || child.opacity === 0))
+    );
+    
+    // Skip instances with many children (they often fail)
+    const isComplexInstance = (
+      node.type === 'INSTANCE' && 
+      node.children && 
+      node.children.length > 10
+    );
+    
+    if (isTooSmallToExport || isEmptyMask || isComplexInstance) {
+      return undefined;
+    }
+    
+    // Export node as SVG with additional error handling
+    let svgString: any;
+    try {
+      svgString = await node.exportAsync({ 
+        format: 'SVG',
+        svgIdAttribute: true,
+        svgOutlineText: false,
+        svgSimplifyStroke: false
+      });
+    } catch (exportError) {
+      // Silent fail for nodes that can't be exported
+      console.log(`SVG export failed for ${node.name} (${node.type}): Node may not have visible layers`);
+      return undefined;
+    }
+    
+    // Check if the export returned valid data
+    if (!svgString || (typeof svgString === 'string' && svgString.trim().length === 0)) {
+      return undefined;
+    }
+    
+    // Handle SVG string - in Figma plugin environment, it's already a string
+    let svgContent: string;
+    if (typeof svgString === 'string') {
+      svgContent = svgString;
+    } else if (svgString instanceof Uint8Array) {
+      // Fallback for environments that might return Uint8Array
+      try {
+        svgContent = new TextDecoder().decode(svgString);
+      } catch (error) {
+        // Manual decoding if TextDecoder is not available
+        svgContent = String.fromCharCode(...Array.from(svgString));
+      }
+    } else {
+      // Last resort - convert to string
+      svgContent = String(svgString);
+    }
+    
+    // Parse SVG to extract path data
+    const paths: SVGPath[] = [];
+    
+    // Extract vector paths with full detail
+    if ('vectorPaths' in node && node.vectorPaths) {
+      for (const vectorPath of node.vectorPaths) {
+        const svgPath: SVGPath = {
+          d: vectorPath.data,
+          fillRule: vectorPath.windingRule === 'EVENODD' ? 'evenodd' : 'nonzero'
+        };
+        
+        // Add fill information
+        if (node.fills && node.fills.length > 0) {
+          const fill = node.fills[0];
+          if (fill.type === 'SOLID') {
+            svgPath.fill = rgbaToHex(fill.color);
+            svgPath.opacity = fill.opacity;
+          }
+        }
+        
+        // Add stroke information
+        if (node.strokes && node.strokes.length > 0) {
+          const stroke = node.strokes[0];
+          if (stroke.type === 'SOLID') {
+            svgPath.stroke = rgbaToHex(stroke.color);
+            svgPath.strokeWidth = (typeof node.strokeWeight === 'number') ? node.strokeWeight : 1;
+            svgPath.strokeLinecap = node.strokeCap?.toLowerCase();
+            svgPath.strokeLinejoin = node.strokeJoin?.toLowerCase();
+          }
+        }
+        
+        paths.push(svgPath);
+      }
+    }
+    
+    return {
+      viewBox: `0 0 ${width} ${height}`,
+      width,
+      height,
+      svgContent,
+      paths,
+      preserveAspectRatio: 'xMidYMid meet'
+    };
+    
+  } catch (error) {
+    console.error('Error extracting SVG data:', error);
+    return undefined;
+  }
+}
+
+// Parse SVG path data into structured commands
+function parsePathData(pathData: string): PathCommand[] {
+  const commands: PathCommand[] = [];
+  
+  try {
+    // Regular expression to match SVG path commands
+    const commandRegex = /([MmLlHhVvCcSsQqTtAaZz])([\d\s,.-]*)/g;
+    let match;
+    
+    while ((match = commandRegex.exec(pathData)) !== null) {
+      const command = match[1];
+      const coordString = match[2].trim();
+      
+      if (coordString) {
+        const coordinates = coordString
+          .split(/[\s,]+/)
+          .filter(c => c.length > 0)
+          .map(c => parseFloat(c))
+          .filter(c => !isNaN(c));
+        
+        commands.push({
+          command: command.toUpperCase(),
+          coordinates,
+          relative: command === command.toLowerCase()
+        });
+      } else if (command.toUpperCase() === 'Z') {
+        commands.push({
+          command: 'Z',
+          coordinates: [],
+          relative: false
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error parsing path data:', error);
+  }
+  
+  return commands;
+}
+
+// Enhanced fill extraction with 100% fidelity
+async function extractDetailedFillProperties(node: any): Promise<DetailedFillProperty[]> {
+  const fills: DetailedFillProperty[] = [];
+  
+  if (!('fills' in node) || !node.fills || node.fills.length === 0) {
+    return fills;
+  }
+  
+  for (const fill of node.fills) {
+    try {
+      const detailedFill: DetailedFillProperty = {
+        type: fill.type,
+        visible: fill.visible !== false,
+        opacity: fill.opacity || 1.0,
+        blendMode: fill.blendMode || 'NORMAL'
+      };
+    
+    // Solid color fills
+    if (fill.type === 'SOLID') {
+      detailedFill.color = rgbaToHex(fill.color);
+    }
+    
+    // Gradient fills with precise data
+    if (fill.type.includes('GRADIENT')) {
+      detailedFill.gradientStops = fill.gradientStops?.map((stop: any) => ({
+        position: stop.position,
+        color: rgbaToHex(stop.color)
+      }));
+      detailedFill.gradientTransform = fill.gradientTransform;
+      
+      // Extract precise gradient data
+      if (fill.gradientHandlePositions) {
+        detailedFill.gradientHandlePositions = fill.gradientHandlePositions;
+      }
+    }
+    
+    // Image fills with complete data
+    if (fill.type === 'IMAGE') {
+      detailedFill.imageHash = fill.imageHash;
+      detailedFill.scaleMode = fill.scaleMode;
+      detailedFill.detailedImageTransform = fill.imageTransform;
+      
+      // Extract image filters if present
+      if (fill.filters && Array.isArray(fill.filters)) {
+        detailedFill.filters = fill.filters.map((filter: any) => ({
+          type: filter.type,
+          value: filter.value,
+          unit: filter.unit
+        }));
+      } else if (fill.filters) {
+        // Handle non-array filters (might be an object or other structure)
+        console.log('Non-array filters detected for fill:', typeof fill.filters);
+        detailedFill.filters = [];
+      }
+    }
+    
+    // Video fills
+    if (fill.type === 'VIDEO') {
+      detailedFill.videoHash = fill.videoHash;
+      detailedFill.scaleMode = fill.scaleMode;
+      detailedFill.detailedImageTransform = fill.imageTransform;
+    }
+    
+    fills.push(detailedFill);
+    } catch (error) {
+      console.log('Error processing fill property:', error);
+      // Skip this fill and continue with others
+      continue;
+    }
+  }
+  
+  return fills;
+}
+
+// Enhanced gradient extraction with precise transform data
+function extractPreciseGradientData(fill: any): PreciseGradientProperty | undefined {
+  if (!fill.type.includes('GRADIENT')) return undefined;
+  
+  const gradient: PreciseGradientProperty = {
+    type: fill.type.includes('LINEAR') ? 'linear' : 
+          fill.type.includes('RADIAL') ? 'radial' : 
+          fill.type.includes('ANGULAR') ? 'angular' : 'diamond',
+    stops: [],
+    transform: fill.gradientTransform || [1, 0, 0, 1, 0, 0],
+    opacity: fill.opacity || 1.0,
+    blendMode: fill.blendMode || 'NORMAL'
+  };
+  
+  // Extract precise gradient stops
+  if (fill.gradientStops) {
+    gradient.stops = fill.gradientStops.map((stop: any) => ({
+      position: stop.position,
+      color: {
+        r: stop.color.r,
+        g: stop.color.g,
+        b: stop.color.b,
+        a: stop.color.a
+      },
+      midpoint: stop.midpoint
+    }));
+  }
+  
+  return gradient;
+}
+
+// Master function for 100% design data extraction
+async function extractComprehensiveDesignData(node: any): Promise<any> {
+  const comprehensiveData: any = {};
+  
+  try {
+    // Extract all visual properties with maximum fidelity
+    try {
+      comprehensiveData.detailedFills = await extractDetailedFillProperties(node);
+    } catch (error) {
+      console.log('Error extracting detailed fill properties:', error);
+      comprehensiveData.detailedFills = [];
+    }
+    
+    // Extract precise measurements and positioning
+    if ('width' in node && 'height' in node) {
+      comprehensiveData.preciseMeasurements = {
+        width: node.width,
+        height: node.height,
+        x: node.x || 0,
+        y: node.y || 0,
+        rotation: node.rotation || 0,
+        targetAspectRatio: node.targetAspectRatio || null,
+        layoutAlign: node.layoutAlign,
+        layoutGrow: node.layoutGrow
+      };
+    }
+    
+    // Extract all transformation data
+    if ('absoluteTransform' in node) {
+      comprehensiveData.transformationMatrix = {
+        absolute: node.absoluteTransform,
+        relative: node.relativeTransform,
+        decomposed: decomposeTransform(node.absoluteTransform)
+      };
+    }
+    
+    // Extract blend modes and opacity
+    comprehensiveData.blendingProperties = {
+      blendMode: node.blendMode || 'PASS_THROUGH',
+      opacity: node.opacity || 1.0,
+      isMask: node.isMask || false,
+      visible: node.visible !== false
+    };
+    
+    // Extract layout constraints
+    if ('constraints' in node) {
+      comprehensiveData.layoutConstraints = {
+        horizontal: node.constraints.horizontal,
+        vertical: node.constraints.vertical
+      };
+    }
+    
+    // Extract auto-layout properties with full detail
+    if ('layoutMode' in node && node.layoutMode !== 'NONE') {
+      comprehensiveData.autoLayoutProperties = {
+        mode: node.layoutMode,
+        direction: node.primaryAxisAlignItems,
+        wrap: node.counterAxisAlignItems,
+        spacing: node.itemSpacing,
+        padding: {
+          top: node.paddingTop || 0,
+          right: node.paddingRight || 0,
+          bottom: node.paddingBottom || 0,
+          left: node.paddingLeft || 0
+        },
+        primaryAxisSizingMode: node.primaryAxisSizingMode,
+        counterAxisSizingMode: node.counterAxisSizingMode,
+        primaryAxisAlignItems: node.primaryAxisAlignItems,
+        counterAxisAlignItems: node.counterAxisAlignItems,
+        layoutWrap: node.layoutWrap
+      };
+    }
+    
+    // Extract corner radius with individual corners
+    if ('cornerRadius' in node) {
+      if (typeof node.cornerRadius === 'number') {
+        comprehensiveData.cornerRadius = {
+          all: node.cornerRadius,
+          topLeft: node.cornerRadius,
+          topRight: node.cornerRadius,
+          bottomLeft: node.cornerRadius,
+          bottomRight: node.cornerRadius
+        };
+      } else {
+        comprehensiveData.cornerRadius = {
+          all: 0,
+          topLeft: node.topLeftRadius || 0,
+          topRight: node.topRightRadius || 0,
+          bottomLeft: node.bottomLeftRadius || 0,
+          bottomRight: node.bottomRightRadius || 0
+        };
+      }
+    }
+    
+    // Extract export settings if available
+    if ('exportSettings' in node && node.exportSettings) {
+      comprehensiveData.exportSettings = node.exportSettings.map((setting: any) => ({
+        format: setting.format,
+        suffix: setting.suffix,
+        constraint: setting.constraint,
+        contentsOnly: setting.contentsOnly
+      }));
+    }
+    
+    return comprehensiveData;
+    
+  } catch (error) {
+    console.error('Error extracting comprehensive design data:', error);
+    return comprehensiveData;
+  }
+}
+
+// Decompose transformation matrix into readable components
+function decomposeTransform(matrix: number[]): any {
+  if (!matrix || matrix.length < 6) return null;
+  
+  const [a, b, c, d, tx, ty] = matrix;
+  
+  return {
+    translateX: tx,
+    translateY: ty,
+    scaleX: Math.sqrt(a * a + b * b),
+    scaleY: Math.sqrt(c * c + d * d),
+    rotation: Math.atan2(b, a) * (180 / Math.PI),
+    skewX: Math.atan2(c, d) * (180 / Math.PI) - 90,
+    skewY: Math.atan2(b, a) * (180 / Math.PI)
+  };
 }
 
 async function extractEffects(node: any): Promise<EffectProperties[]> {
@@ -2123,21 +2883,7 @@ export interface PrecisePositionProperties extends PositionProperties {
   }
 }
 
-export interface BoundingBox {
-  x: number
-  y: number
-  width: number
-  height: number
-  centerX: number
-  centerY: number
-  // For precise measurements
-  pixelBounds: {
-    left: number
-    top: number
-    right: number
-    bottom: number
-  }
-}
+// BoundingBox interface already defined above
 
 // Enhanced layout with precise measurements
 export interface PreciseLayoutProperties extends LayoutProperties {
@@ -2352,6 +3098,10 @@ async function extractPrecisePositionProperties(node: any, parent?: any): Promis
     y: absoluteBounds.y,
     width: absoluteBounds.width,
     height: absoluteBounds.height,
+    left: absoluteBounds.x,
+    top: absoluteBounds.y,
+    right: absoluteBounds.x + absoluteBounds.width,
+    bottom: absoluteBounds.y + absoluteBounds.height,
     centerX: absoluteBounds.x + absoluteBounds.width / 2,
     centerY: absoluteBounds.y + absoluteBounds.height / 2,
     pixelBounds: {
@@ -2491,7 +3241,7 @@ async function extractPreciseTypographyProperties(node: any): Promise<PreciseTyp
     
     // Extract text stroke from stroke properties
     textStroke: node.strokes && node.strokes.length > 0 ? {
-      width: node.strokeWeight || 0,
+      width: (typeof node.strokeWeight === 'number') ? node.strokeWeight : 0,
       color: rgbaToHex(node.strokes[0].color)
     } : undefined,
     
@@ -2518,17 +3268,24 @@ async function extractComponentRelationships(node: any): Promise<ComponentRelati
     creator: 'Unknown'
   };
   
-  // Extract main component relationship for instances
-  if (node.type === 'INSTANCE' && node.mainComponent) {
-    relationships.mainComponent = {
-      id: node.mainComponent.id,
-      name: node.mainComponent.name,
-      type: node.mainComponent.type,
-      key: node.mainComponent.key,
-      description: node.mainComponent.description,
-      published: false, // Would need to check if component is published
-      remote: false // Would need to check if component is from external library
-    };
+  // Extract main component relationship for instances (using async API)
+  if (node.type === 'INSTANCE') {
+    try {
+      const mainComponent = await node.getMainComponentAsync();
+      if (mainComponent) {
+        relationships.mainComponent = {
+          id: mainComponent.id,
+          name: mainComponent.name,
+          type: mainComponent.type,
+          key: mainComponent.key || '',
+          description: mainComponent.description || '',
+          published: false, // Would need to check if component is published
+          remote: false // Would need to check if component is from external library
+        };
+      }
+    } catch (error) {
+      console.warn('Could not get main component for instance:', node.name, error);
+    }
     
     // Extract instance overrides
     if (node.componentProperties) {
@@ -2540,6 +3297,31 @@ async function extractComponentRelationships(node: any): Promise<ComponentRelati
         path: key.split('/')
       }));
     }
+  }
+  
+  // Extract variant properties from component sets
+  if (node.type === 'COMPONENT_SET' && node.children) {
+    const variantProps = extractVariantPropertiesFromSet(node);
+    relationships.variantProperties = variantProps;
+    
+    // Extract child components (variants)
+    relationships.childComponents = node.children
+      .filter((child: any) => child.type === 'COMPONENT')
+      .map((child: any) => ({
+        id: child.id,
+        name: child.name,
+        type: child.type,
+        key: child.key,
+        description: child.description,
+        published: false,
+        remote: false
+      }));
+  }
+  
+  // Extract variant properties from instances
+  if (node.type === 'INSTANCE' && node.componentProperties) {
+    const variantProps = extractVariantPropertiesFromInstance(node);
+    relationships.variantProperties = variantProps;
   }
   
   // Extract style references
@@ -2562,6 +3344,66 @@ async function extractComponentRelationships(node: any): Promise<ComponentRelati
   }));
   
   return relationships;
+}
+
+// Helper function to extract variant properties from component sets
+function extractVariantPropertiesFromSet(node: any): VariantProperty[] {
+  const variantProps: VariantProperty[] = [];
+  
+  if (!node.children) return variantProps;
+  
+  // Analyze component names to extract variant properties
+  const componentNames = node.children
+    .filter((child: any) => child.type === 'COMPONENT')
+    .map((child: any) => child.name);
+  
+  // Parse variant properties from component names (e.g., "Button, State=Default, Size=Large")
+  for (const name of componentNames) {
+    const parts = name.split(', ');
+    for (const part of parts) {
+      if (part.includes('=')) {
+        const [propName, propValue] = part.split('=');
+        const existingProp = variantProps.find(p => p.name === propName.trim());
+        
+        if (!existingProp) {
+          variantProps.push({
+            name: propName.trim(),
+            value: propValue.trim(),
+            type: 'variant',
+            defaultValue: propValue.trim(),
+            options: [propValue.trim()]
+          });
+        } else {
+          existingProp.options = existingProp.options || [];
+          if (!existingProp.options.includes(propValue.trim())) {
+            existingProp.options.push(propValue.trim());
+          }
+        }
+      }
+    }
+  }
+  
+  return variantProps;
+}
+
+// Helper function to extract variant properties from instances
+function extractVariantPropertiesFromInstance(node: any): VariantProperty[] {
+  const variantProps: VariantProperty[] = [];
+  
+  if (!node.componentProperties) return variantProps;
+  
+  for (const [key, value] of Object.entries(node.componentProperties)) {
+    const prop = value as any;
+    variantProps.push({
+      name: key,
+      value: prop.value,
+      type: prop.type || 'variant',
+      defaultValue: prop.defaultValue || prop.value,
+      options: prop.preferredValues || undefined
+    });
+  }
+  
+  return variantProps;
 }
 
 async function extractDesignContext(node: any): Promise<DesignContext> {
@@ -2841,7 +3683,7 @@ function extractBackdropBlur(node: any): number {
 }
 
 async function extractBackgroundImages(node: any): Promise<BackgroundImage[]> {
-  if (!node.fills) return [];
+  if (!node.fills || !Array.isArray(node.fills)) return [];
   
   const backgroundImages: BackgroundImage[] = [];
   
@@ -2937,11 +3779,40 @@ function extractBorderImageSlice(node: any): string {
   return '1';
 }
 
-function extractBorderImageWidth(node: any): string {
-  if (node.strokeWeight) {
-    return `${node.strokeWeight}px`;
+// Helper function to safely convert values to strings, avoiding symbol conversion errors
+function safeStringify(value: any, fallback: string = ''): string {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'symbol') return fallback;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return value.toString();
+  if (typeof value === 'boolean') return value.toString();
+  
+  try {
+    return String(value);
+  } catch (error) {
+    console.warn('Failed to stringify value:', value, error);
+    return fallback;
   }
-  return '1px';
+}
+
+// Helper function to safely convert to number
+function safeNumber(value: any, fallback: number = 0): number {
+  if (typeof value === 'number' && !isNaN(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : parsed;
+  }
+  return fallback;
+}
+
+function extractBorderImageWidth(node: any): string {
+  try {
+    const strokeWeight = safeNumber(node.strokeWeight, 1);
+    return `${strokeWeight}px`;
+  } catch (error) {
+    console.warn('Error extracting border image width:', error);
+    return '1px';
+  }
 }
 
 async function extractClipPath(node: any): Promise<string | undefined> {

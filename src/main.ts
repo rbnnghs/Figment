@@ -5,6 +5,9 @@ import { DownloadBlueprintHandler, SelectionUpdateHandler, CopyToClipboardHandle
 export default function () {
   let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
   
+  // Initialize plugin and cleanup old storage data
+  initializePlugin();
+  
   // Handle selection changes with debouncing
   figma.on('selectionchange', () => {
     if (selectionTimeout) {
@@ -22,6 +25,9 @@ export default function () {
   on('copy-blueprint', handleCopyRequest)
   on('export-figment', handleFigmentExport)
   on('real-time-export', handleRealTimeExport)
+  on('force-selection-refresh', handleForceSelectionRefresh)
+  on('select-parent-component', handleSelectParentComponent)
+  on('debug-selection', handleDebugSelection)
   
   // Initial selection update
   updateBlueprintForSelection()
@@ -32,6 +38,7 @@ export default function () {
   showUI({ height: UI_HEIGHT, width: UI_WIDTH })
 }
 
+// Enhanced selection handling for complex components
 async function updateBlueprintForSelection() {
   const selection = figma.currentPage.selection
   
@@ -48,29 +55,469 @@ async function updateBlueprintForSelection() {
     return
   }
 
+  // Notify UI that processing has started
   try {
-    const node = selection[0]
+    figma.ui.postMessage({ 
+      type: 'processing-started', 
+      status: 'Analyzing selection...' 
+    });
+  } catch (error) {
+    // Silent fail for UI communication errors
+  }
+
+  // DEBUG: Log all selected items for variant debugging
+  if (selection.length > 1) {
+    console.log('🔍 Multiple items selected:');
+    selection.forEach((item, index) => {
+      console.log(`  ${index + 1}. ${item.name} (${item.type}) - Children: ${'children' in item ? item.children?.length || 0 : 0}`);
+    });
+  }
+
+  try {
+    let node = selection[0]
     console.log('🎯 Selected node:', {
       id: node.id,
       name: node.name,
-      type: node.type
+      type: node.type,
+      width: 'width' in node ? node.width : 'N/A',
+      height: 'height' in node ? node.height : 'N/A',
+      hasChildren: 'children' in node ? node.children?.length || 0 : 'N/A',
+      parentType: node.parent ? node.parent.type : 'N/A',
+      parentName: node.parent ? node.parent.name : 'N/A'
     });
     
-    if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'FRAME' || node.type === 'INSTANCE' || node.type === 'GROUP' || node.type === 'RECTANGLE' || node.type === 'ELLIPSE' || node.type === 'TEXT' || node.type === 'VECTOR' || node.type === 'STAR' || node.type === 'LINE' || node.type === 'POLYGON') {
+    // VARIANT SELECTION FIX: Check if we have a child element selected (common issue with complex components)
+    const isChildElement = isLikelyChildElement(node);
+    console.log('🔍 Child element check result:', isChildElement);
+    
+    if (isChildElement) {
+      console.log('⚠️ Child element detected, searching for proper parent component...');
+      figma.notify('Child element selected, finding parent component...', { timeout: 2000 });
+      
+      // Try to find a proper parent component
+      const properComponent = findProperParentComponent(node);
+      if (properComponent) {
+        node = properComponent;
+        console.log('✅ Found proper parent component:', {
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          width: 'width' in node ? node.width : 'N/A',
+          height: 'height' in node ? node.height : 'N/A'
+        });
+      }
+    }
+    
+    // Enhanced node type checking with fallback selection
+    if (isSupportedNodeType(node)) {
       console.log('✅ Node type supported, extracting blueprint...');
-      const blueprint = await extractDesignBlueprint(node)
-      console.log('✅ Blueprint extracted successfully');
-      const message = { type: 'blueprint-data', data: blueprint }
-      figma.ui.postMessage(message)
+      console.log('🎯 Processing node:', node.name, 'Type:', node.type);
+      
+      // Update processing status
+      try {
+        figma.ui.postMessage({ 
+          type: 'processing-update', 
+          status: `Extracting ${node.name}...` 
+        });
+      } catch (error) {
+        // Silent fail for UI communication errors
+      }
+      
+      // Add minimum delay to ensure loading indicator is visible
+      const startTime = Date.now();
+      
+      try {
+        const blueprint = await extractDesignBlueprint(node)
+        
+        // Ensure minimum 500ms processing time for UI feedback
+        const processingTime = Date.now() - startTime;
+        const minDelay = Math.max(0, 500 - processingTime);
+        
+        if (minDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, minDelay));
+        }
+        
+        console.log('✅ Blueprint extracted successfully');
+        const message = { type: 'blueprint-data', data: blueprint }
+        figma.ui.postMessage(message)
+      } catch (error) {
+        console.error('❌ Error extracting blueprint:', error);
+        figma.notify('Error extracting component data', { error: true });
+        figma.ui.postMessage({ type: 'blueprint-data', data: null })
+      }
     } else {
-      console.log('❌ Node type not supported:', node.type);
-      console.log('📋 Supported types: COMPONENT, COMPONENT_SET, FRAME, INSTANCE, GROUP');
-      figma.ui.postMessage({ type: 'blueprint-data', data: null })
+      // Try to find a supported parent or child component
+      console.log('⚠️ Node type not directly supported:', node.type, 'for node:', node.name);
+      console.log('🔍 Searching for compatible component...');
+      
+      // Update processing status
+      try {
+        figma.ui.postMessage({ 
+          type: 'processing-update', 
+          status: 'Finding compatible component...' 
+        });
+      } catch (error) {
+        // Silent fail for UI communication errors
+      }
+      
+      const compatibleNode = findCompatibleComponent(node);
+      
+      if (compatibleNode) {
+        console.log('✅ Found compatible component:', {
+          id: compatibleNode.id,
+          name: compatibleNode.name,
+          type: compatibleNode.type
+        });
+        
+        // Update processing status
+        try {
+          figma.ui.postMessage({ 
+            type: 'processing-update', 
+            status: `Extracting ${compatibleNode.name}...` 
+          });
+        } catch (error) {
+          // Silent fail for UI communication errors
+        }
+        
+        // Add minimum delay to ensure loading indicator is visible
+        const startTime = Date.now();
+        
+        const blueprint = await extractDesignBlueprint(compatibleNode)
+        
+        // Ensure minimum 500ms processing time for UI feedback
+        const processingTime = Date.now() - startTime;
+        const minDelay = Math.max(0, 500 - processingTime);
+        
+        if (minDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, minDelay));
+        }
+        
+        const message = { type: 'blueprint-data', data: blueprint }
+        figma.ui.postMessage(message)
+      } else {
+        console.log('❌ No compatible component found');
+        console.log('📋 Supported types: COMPONENT, COMPONENT_SET, FRAME, INSTANCE, GROUP, RECTANGLE, ELLIPSE, TEXT, VECTOR, STAR, LINE, POLYGON, BOOLEAN_OPERATION, SLICE');
+        figma.ui.postMessage({ type: 'blueprint-data', data: null })
+        figma.ui.postMessage({ type: 'selection-issue' })
+      }
     }
   } catch (error) {
     console.error('❌ Error in updateBlueprintForSelection:', error);
     figma.ui.postMessage({ type: 'blueprint-data', data: null })
   }
+}
+
+// Enhanced node type checking
+function isSupportedNodeType(node: SceneNode): boolean {
+  const supportedTypes = [
+    'COMPONENT', 
+    'COMPONENT_SET', 
+    'FRAME', 
+    'INSTANCE', 
+    'GROUP', 
+    'RECTANGLE', 
+    'ELLIPSE', 
+    'TEXT', 
+    'VECTOR', 
+    'STAR', 
+    'LINE', 
+    'POLYGON',
+    'BOOLEAN_OPERATION',
+    'SLICE'
+  ];
+  
+  return supportedTypes.includes(node.type);
+}
+
+// Enhanced child element detection - fixed for variants and complex components
+function isLikelyChildElement(node: SceneNode): boolean {
+  if (!node.parent || !('type' in node.parent)) return false;
+  
+  // Check if node has dimensions
+  if (!('width' in node && 'height' in node)) return false;
+  
+  // CRITICAL FIX: Never treat these as child elements - they ARE the components we want
+  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'INSTANCE') {
+    console.log('🎯 Component/Instance/ComponentSet detected - NOT a child element');
+    return false;
+  }
+  
+  // Don't treat frames with children as child elements - they might be variants
+  if (node.type === 'FRAME' && 'children' in node && node.children && node.children.length > 0) {
+    console.log('🎯 Frame with children detected - NOT a child element');
+    return false;
+  }
+  
+  // Don't treat groups with multiple children as child elements - they might be component variants
+  if (node.type === 'GROUP' && 'children' in node && node.children && node.children.length > 1) {
+    console.log('🎯 Group with multiple children detected - NOT a child element');
+    return false;
+  }
+  
+  const width = node.width;
+  const height = node.height;
+  const parent = node.parent;
+  
+  // Only treat very small elements as potential child elements
+  const isVerySmallElement = width < 50 && height < 50;
+  const isSmallElement = width < 100 && height < 100;
+  
+  // Check parent characteristics
+  const parentName = parent.name.toLowerCase();
+  const hasComponentParent = parentName.includes('component') || 
+                           parentName.includes('dialog') || 
+                           parentName.includes('modal') ||
+                           parentName.includes('card') ||
+                           parentName.includes('button') ||
+                           parentName.includes('form') ||
+                           parentName.includes('panel') ||
+                           parentName.includes('container');
+  
+  // Check if parent is a component-like structure
+  const parentIsComponentLike = parent.type === 'COMPONENT' || 
+                               parent.type === 'COMPONENT_SET' ||
+                               parent.type === 'INSTANCE' ||
+                               (parent.type === 'FRAME' && 'width' in parent && parent.width > width * 3);
+  
+  // Only very small elements should be considered child elements
+  if (isVerySmallElement && hasComponentParent && parentIsComponentLike) {
+    console.log('🔍 Very small element detected as potential child');
+    return true;
+  }
+  
+  // Text, icons, and simple shapes that are clearly decorative elements
+  if ((node.type === 'TEXT' || node.type === 'VECTOR' || node.type === 'ELLIPSE' || node.type === 'RECTANGLE') && 
+      isSmallElement && parentIsComponentLike && 'width' in parent && parent.width > width * 3) {
+    console.log('🔍 Small decorative element detected as potential child');
+    return true;
+  }
+  
+  console.log('✅ Not a child element - treating as main component');
+  return false;
+}
+
+// Find proper parent component when tiny elements are selected
+function findProperParentComponent(node: SceneNode): SceneNode | null {
+  console.log('🔍 Searching for proper parent component...');
+  
+  let current = node.parent;
+  let levelsUp = 0;
+  const maxLevels = 10; // Prevent infinite loops
+  
+  while (current && levelsUp < maxLevels) {
+    levelsUp++;
+    
+    // Check if this parent is a substantial component
+    if ('width' in current && 'height' in current) {
+      const width = current.width;
+      const height = current.height;
+      
+      console.log(`🔍 Level ${levelsUp}: ${current.name} (${width}x${height})`);
+      
+      // Look for substantial components (reasonable size)
+      if (width > 200 && height > 200) {
+        // Check if it's a supported type
+        if ('type' in current && isSupportedNodeType(current as SceneNode)) {
+          console.log(`✅ Found substantial parent: ${current.name} (${width}x${height})`);
+          figma.notify(`Found proper component: ${current.name}`, { timeout: 2000 });
+          return current as SceneNode;
+        }
+      }
+      
+      // Special case: if we find a component with "Dialog" in the name, prioritize it
+      if (current.name.toLowerCase().includes('dialog') && 
+          'type' in current && isSupportedNodeType(current as SceneNode)) {
+        console.log(`✅ Found dialog component: ${current.name} (${width}x${height})`);
+        figma.notify(`Found dialog component: ${current.name}`, { timeout: 2000 });
+        return current as SceneNode;
+      }
+      
+      // Special case: if we find "System_Save Dialog" specifically, prioritize it
+      if (current.name === 'System_Save Dialog' && 
+          'type' in current && isSupportedNodeType(current as SceneNode)) {
+        console.log(`✅ Found System_Save Dialog: ${current.name} (${width}x${height})`);
+        figma.notify(`Found System_Save Dialog component`, { timeout: 2000 });
+        return current as SceneNode;
+      }
+    }
+    
+    current = current.parent;
+  }
+  
+  console.log('❌ No substantial parent component found');
+  return null;
+}
+
+// Find compatible component in complex structures
+function findCompatibleComponent(node: SceneNode): SceneNode | null {
+  console.log('🔍 Searching for compatible component for:', node.name, node.type);
+  
+  // Check if the node itself is supported
+  if (isSupportedNodeType(node)) {
+    console.log('✅ Node itself is supported:', node.name);
+    return node;
+  }
+  
+  // Special handling for component sets - prefer the component set itself over individual variants
+  if (node.type === 'COMPONENT_SET') {
+    console.log('✅ Component set detected:', node.name);
+    figma.notify(`Using component set: ${node.name}`, { timeout: 2000 });
+    return node;
+  }
+  
+  // CRITICAL FIX: For variants and complex components, don't search too aggressively
+  // If it's a frame or group with multiple children, it's likely a variant component itself
+  if ((node.type === 'FRAME' || node.type === 'GROUP') && 'children' in node && node.children && node.children.length > 0) {
+    console.log('🎯 Frame/Group with children - likely a variant component');
+    figma.notify(`Using variant component: ${node.name}`, { timeout: 2000 });
+    return node;
+  }
+  
+  // Check parent components with more comprehensive traversal
+  let current = node.parent;
+  let level = 0;
+  const maxLevels = 15; // Increased from implicit 10
+  
+  while (current && level < maxLevels) {
+    level++;
+    console.log(`🔍 Level ${level}: Checking parent ${current.name} (${current.type})`);
+    
+    if ('type' in current && isSupportedNodeType(current as SceneNode)) {
+      // Prefer component sets and components over frames
+      if (current.type === 'COMPONENT_SET' || current.type === 'COMPONENT' || current.type === 'INSTANCE') {
+        console.log('✅ Found high-priority parent component:', current.name, current.type);
+        figma.notify(`Found component: ${current.name}`, { timeout: 2000 });
+        return current as SceneNode;
+      }
+      
+      // Store frame as fallback but continue looking for better options
+      if (current.type === 'FRAME' && level <= 3) {
+        console.log('📝 Frame found as fallback option:', current.name);
+        // Continue searching for better options, but remember this frame
+      }
+      
+      // For other supported types, return immediately
+      console.log('✅ Found supported parent component:', current.name, current.type);
+      figma.notify(`Found compatible component: ${current.name}`, { timeout: 2000 });
+      return current as SceneNode;
+    }
+    
+    current = current.parent;
+  }
+  
+  // Check children more thoroughly (useful for containers with unsupported types)
+  if ('children' in node && node.children && node.children.length > 0) {
+    console.log('🔍 Checking children for compatible components...');
+    
+    // First pass: Look for components and component sets
+    for (const child of node.children) {
+      if (child.type === 'COMPONENT' || child.type === 'COMPONENT_SET' || child.type === 'INSTANCE') {
+        console.log('✅ Found high-priority child component:', child.name, child.type);
+        figma.notify(`Found component: ${child.name}`, { timeout: 2000 });
+        return child;
+      }
+    }
+    
+    // Second pass: Look for any supported type
+    for (const child of node.children) {
+      if (isSupportedNodeType(child)) {
+        console.log('✅ Found supported child component:', child.name, child.type);
+        figma.notify(`Found compatible component: ${child.name}`, { timeout: 2000 });
+        return child;
+      }
+    }
+    
+    // Third pass: Recursively check grandchildren (one level deep)
+    for (const child of node.children) {
+      if ('children' in child && child.children) {
+        for (const grandchild of child.children) {
+          if (grandchild.type === 'COMPONENT' || grandchild.type === 'COMPONENT_SET' || grandchild.type === 'INSTANCE') {
+            console.log('✅ Found grandchild component:', grandchild.name, grandchild.type);
+            figma.notify(`Found nested component: ${grandchild.name}`, { timeout: 2000 });
+            return grandchild;
+          }
+        }
+      }
+    }
+  }
+  
+  console.log('❌ No compatible component found after exhaustive search');
+  return null;
+}
+
+// Force refresh selection (useful for debugging)
+async function handleForceSelectionRefresh() {
+  console.log('🔄 Force refreshing selection...');
+  updateBlueprintForSelection();
+}
+
+// Manually select parent component
+async function handleSelectParentComponent() {
+  console.log('🔍 Manually selecting parent component...');
+  
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    figma.notify('No selection found', { error: true });
+    return;
+  }
+  
+  const node = selection[0];
+  const parentComponent = findProperParentComponent(node);
+  
+  if (parentComponent) {
+    // Select the parent component in Figma
+    figma.currentPage.selection = [parentComponent];
+    figma.notify(`Selected parent component: ${parentComponent.name}`, { timeout: 2000 });
+    
+    // Update the blueprint
+    setTimeout(() => {
+      updateBlueprintForSelection();
+    }, 100);
+  } else {
+    figma.notify('No suitable parent component found', { error: true });
+  }
+}
+
+// Debug selection hierarchy
+async function handleDebugSelection() {
+  console.log('🔍 Debugging selection hierarchy...');
+  
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    figma.notify('No selection found', { error: true });
+    return;
+  }
+  
+  const node = selection[0];
+  console.log('🎯 Current selection:', {
+    id: node.id,
+    name: node.name,
+    type: node.type,
+    width: 'width' in node ? node.width : 'N/A',
+    height: 'height' in node ? node.height : 'N/A'
+  });
+  
+  // Walk up the hierarchy
+  let current = node.parent;
+  let level = 1;
+  while (current && level <= 10) {
+    console.log(`📋 Level ${level} parent:`, {
+      id: current.id,
+      name: current.name,
+      type: 'type' in current ? current.type : 'N/A',
+      width: 'width' in current ? current.width : 'N/A',
+      height: 'height' in current ? current.height : 'N/A'
+    });
+    
+    if (current.name === 'System_Save Dialog') {
+      figma.notify(`Found System_Save Dialog at level ${level}`, { timeout: 3000 });
+    }
+    
+    current = current.parent;
+    level++;
+  }
+  
+  figma.notify('Check console for selection hierarchy', { timeout: 2000 });
 }
 
 async function handleDownloadRequest() {
@@ -110,7 +557,8 @@ async function handleFigmentExport() {
     figma.notify(`Token generated: ${token} (copied to clipboard)`)
   } catch (error) {
     console.error('Figment export error:', error)
-    figma.notify('Error exporting figment: ' + error.message)
+    const errorMessage = error instanceof Error ? error.message : (typeof error === 'string' ? error : 'Unknown error');
+    figma.notify('Error exporting figment: ' + errorMessage)
   }
 }
 
@@ -199,7 +647,7 @@ async function handleRealTimeExport() {
         hasEnhancedVisuals: !!selectedComponent.enhancedVisuals
       });
       componentData = {
-        ...selectedComponent,
+        ...figmentExport,
         screenshot: screenshotFilename // Add screenshot to single component data as well
       };
     }
@@ -207,13 +655,45 @@ async function handleRealTimeExport() {
     // Save token mapping for MCP server access
     saveTokenMapping(token, componentData)
     
-    // Also save to client storage for persistence
-    await figma.clientStorage.setAsync(token, JSON.stringify({
-      component: componentData,
-      screenshotData: screenshotFilename ? await figma.clientStorage.getAsync(`screenshot_${screenshotFilename}`) : null,
-      created: new Date().toISOString(),
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    }))
+    // Store using figma.clientStorage API (adheres to 5MB limit, async operations)
+    try {
+      const storageData = {
+        token,
+        component: componentData,
+        screenshotFilename,
+        metadata: {
+          created: new Date().toISOString(),
+          expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          nodeId: selection[0].id,
+          nodeName: selection[0].name,
+          nodeType: selection[0].type
+        }
+      };
+
+      // Store the main export data
+      await figma.clientStorage.setAsync(`export_${token}`, storageData);
+      
+      // Update recent exports list
+      const recentExports = await figma.clientStorage.getAsync('recent_exports') || [];
+      const newExport = {
+        token,
+        name: selection[0].name,
+        type: selection[0].type,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Add to beginning and keep only last 10 exports
+      const updatedExports = [newExport, ...recentExports.slice(0, 9)];
+      await figma.clientStorage.setAsync('recent_exports', updatedExports);
+      
+      console.log('💾 Data stored successfully using figma.clientStorage');
+    } catch (storageError) {
+      console.error('❌ Storage failed:', storageError);
+      if (storageError.message && storageError.message.includes('quota')) {
+        figma.notify('⚠️ Storage quota exceeded. Please clear old exports.');
+      }
+      throw storageError;
+    }
     
     console.log('📤 Notifying UI...');
     // Notify UI that export is ready with token
@@ -229,7 +709,7 @@ async function handleRealTimeExport() {
     return { success: true, token, components: components.length }
   } catch (error) {
     console.error('❌ Real-time export error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : (typeof error === 'string' ? error : 'Unknown error');
     figma.notify('Error exporting: ' + errorMessage)
     return { success: false, error: errorMessage }
   }
@@ -546,6 +1026,115 @@ function generateToken(): string {
   return `figma_${timestamp}_${random}`
 }
 
+// Initialize plugin with proper clientStorage management
+async function initializePlugin() {
+  try {
+    console.log('🚀 Initializing Figment plugin with clientStorage management');
+    
+    // Clean up expired exports
+    await cleanupExpiredExports();
+    
+    // Log storage usage for debugging
+    await logStorageUsage();
+    
+    console.log('✅ Plugin initialization complete');
+  } catch (error) {
+    console.error('❌ Plugin initialization failed:', error);
+  }
+}
+
+// Clean up expired exports to manage 5MB storage quota
+async function cleanupExpiredExports() {
+  try {
+    const keys = await figma.clientStorage.keysAsync();
+    const exportKeys = keys.filter(key => key.startsWith('export_'));
+    const now = new Date();
+    
+    let cleanedCount = 0;
+    
+    for (const key of exportKeys) {
+      try {
+        const data = await figma.clientStorage.getAsync(key);
+        if (data && data.metadata && data.metadata.expires) {
+          const expiresAt = new Date(data.metadata.expires);
+          if (now > expiresAt) {
+            await figma.clientStorage.deleteAsync(key);
+            cleanedCount++;
+            console.log(`🗑️ Cleaned expired export: ${key}`);
+          }
+        }
+      } catch (error) {
+        // If we can't read the data, it's probably corrupted, so delete it
+        await figma.clientStorage.deleteAsync(key);
+        cleanedCount++;
+        console.log(`🗑️ Cleaned corrupted export: ${key}`);
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`✅ Cleaned ${cleanedCount} expired/corrupted exports`);
+    }
+  } catch (error) {
+    console.error('❌ Cleanup failed:', error);
+  }
+}
+
+// Log current storage usage for debugging
+async function logStorageUsage() {
+  try {
+    const keys = await figma.clientStorage.keysAsync();
+    console.log(`📊 Storage keys: ${keys.length} total`);
+    
+    const exportKeys = keys.filter(key => key.startsWith('export_'));
+    const screenshotKeys = keys.filter(key => key.startsWith('screenshot_'));
+    const otherKeys = keys.filter(key => !key.startsWith('export_') && !key.startsWith('screenshot_'));
+    
+    console.log(`📊 Storage breakdown:`);
+    console.log(`  - Exports: ${exportKeys.length} keys`);
+    console.log(`  - Screenshots: ${screenshotKeys.length} keys`);
+    console.log(`  - Other: ${otherKeys.length} keys`);
+  } catch (error) {
+    console.error('❌ Storage usage logging failed:', error);
+  }
+}
+
+// Get export data from clientStorage
+async function getExportFromStorage(token: string) {
+  try {
+    const data = await figma.clientStorage.getAsync(`export_${token}`);
+    if (!data) {
+      return null;
+    }
+    
+    // Check if expired
+    if (data.metadata && data.metadata.expires) {
+      const now = new Date();
+      const expiresAt = new Date(data.metadata.expires);
+      if (now > expiresAt) {
+        // Clean up expired data
+        await figma.clientStorage.deleteAsync(`export_${token}`);
+        return null;
+      }
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('❌ Failed to get export from storage:', error);
+    return null;
+  }
+}
+
+// List all available exports
+async function listAvailableExports() {
+  try {
+    const recentExports = await figma.clientStorage.getAsync('recent_exports') || [];
+    return recentExports.filter((exp: any) => exp && exp.token);
+  } catch (error) {
+    console.error('❌ Failed to list exports:', error);
+    return [];
+  }
+}
+
 // Save token mapping to MCP server
 async function saveTokenMapping(token: string, componentData: any) {
   // Define tokenData outside try block so it's available in catch
@@ -670,8 +1259,8 @@ async function extractDesignSystem() {
   for (const style of textStyles) {
     typography.push({
       name: style.name,
-      fontSize: style.fontSize + 'px',
-      fontWeight: style.fontWeight,
+      fontSize: (style.fontSize || 16) + 'px',
+      fontWeight: (style.fontName as any)?.style || 'Regular',
       fontFamily: style.fontName.family
     })
   }
@@ -711,22 +1300,29 @@ async function extractComponents(nodes: readonly SceneNode[]) {
   const components = []
 
   for (const node of nodes) {
-    if (node.type === 'COMPONENT' || node.type === 'INSTANCE' || node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'RECTANGLE' || node.type === 'ELLIPSE' || node.type === 'TEXT' || node.type === 'VECTOR' || node.type === 'STAR' || node.type === 'LINE' || node.type === 'POLYGON') {
+    if (isSupportedNodeType(node)) {
       // Use the rich extraction system for AI/IDE exports
       const component = await extractDesignBlueprint(node)
       components.push(component)
+    } else {
+      // Try to find a compatible component
+      const compatibleNode = findCompatibleComponent(node)
+      if (compatibleNode) {
+        const component = await extractDesignBlueprint(compatibleNode)
+        components.push(component)
+      }
     }
   }
 
   return components
 }
 
-async function extractComponentData(node: ComponentNode | InstanceNode | FrameNode) {
+async function extractComponentData(node: SceneNode) {
   // Use the rich extraction system instead of simplified extraction
   return await extractDesignBlueprint(node)
 }
 
-function determineComponentType(node: ComponentNode | InstanceNode | FrameNode): string {
+function determineComponentType(node: SceneNode): string {
   if (node.type === 'COMPONENT' || node.type === 'INSTANCE') {
     return 'component'
   } else if (node.type === 'FRAME') {
@@ -735,7 +1331,7 @@ function determineComponentType(node: ComponentNode | InstanceNode | FrameNode):
   return 'element'
 }
 
-function extractComponentProps(node: ComponentNode | InstanceNode | FrameNode) {
+function extractComponentProps(node: SceneNode) {
   const props: any = {}
   
   // Extract common properties
@@ -746,17 +1342,17 @@ function extractComponentProps(node: ComponentNode | InstanceNode | FrameNode) {
   
   // Extract text content if available
   if (node.type === 'TEXT') {
-    props.text = node.characters
+    props.text = (node as TextNode).characters
   }
   
   return props
 }
 
-async function extractComponentStyling(node: ComponentNode | InstanceNode | FrameNode) {
+async function extractComponentStyling(node: SceneNode) {
   const styling: any = {}
   
   // Extract fills
-  if ('fills' in node && node.fills && node.fills.length > 0) {
+  if ('fills' in node && node.fills && Array.isArray(node.fills) && node.fills.length > 0) {
     const fill = node.fills[0]
     if (fill.type === 'SOLID') {
       styling.backgroundColor = rgbToHex(fill.color)
@@ -764,31 +1360,31 @@ async function extractComponentStyling(node: ComponentNode | InstanceNode | Fram
   }
   
   // Extract strokes
-  if ('strokes' in node && node.strokes && node.strokes.length > 0) {
+  if ('strokes' in node && node.strokes && Array.isArray(node.strokes) && node.strokes.length > 0) {
     const stroke = node.strokes[0]
-    if (stroke.type === 'SOLID') {
+    if (stroke.type === 'SOLID' && 'strokeWeight' in node) {
       styling.borderColor = rgbToHex(stroke.color)
-      styling.borderWidth = node.strokeWeight + 'px'
+      styling.borderWidth = (typeof node.strokeWeight === 'number' ? node.strokeWeight : 1) + 'px'
     }
   }
   
   // Extract effects (shadows)
-  if ('effects' in node && node.effects && node.effects.length > 0) {
+  if ('effects' in node && node.effects && Array.isArray(node.effects) && node.effects.length > 0) {
     const effect = node.effects[0]
     if (effect.type === 'DROP_SHADOW') {
-      styling.boxShadow = `${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px rgba(0, 0, 0, ${effect.opacity})`
+      styling.boxShadow = `${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px rgba(0, 0, 0, ${effect.color ? effect.color.a || 0.5 : 0.5})`
     }
   }
   
   // Extract corner radius
   if ('cornerRadius' in node && node.cornerRadius) {
-    styling.borderRadius = node.cornerRadius + 'px'
+    styling.borderRadius = (typeof node.cornerRadius === 'number' ? node.cornerRadius : 0) + 'px'
   }
   
   return styling
 }
 
-function extractAccessibilityData(node: ComponentNode | InstanceNode | FrameNode) {
+function extractAccessibilityData(node: SceneNode) {
   const accessibility: any = {}
   
   // Set role based on component type
@@ -803,7 +1399,7 @@ function extractAccessibilityData(node: ComponentNode | InstanceNode | FrameNode
   return accessibility
 }
 
-function generateCodeHints(node: ComponentNode | InstanceNode | FrameNode) {
+function generateCodeHints(node: SceneNode) {
   const codeHints = {
     suggestedFramework: ['react', 'vue'],
     complexity: 'simple' as 'simple' | 'medium' | 'complex',
