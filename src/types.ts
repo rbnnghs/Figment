@@ -676,6 +676,9 @@ export interface DesignTokenMapping {
   zIndex: Record<string, string | null>
   animations: Record<string, string | null>
   breakpoints: Record<string, string | null>
+  // Additional token categories for 100% completeness
+  components: Record<string, string | null>
+  effects: Record<string, string | null>
 }
 
 export interface LintingWarning {

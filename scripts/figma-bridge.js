@@ -193,6 +193,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
+  // Log ALL requests for debugging
+  console.log(`📥 ${req.method} ${req.url} - ${new Date().toISOString()}`);
+  
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
@@ -200,16 +203,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    console.log(`🔍 Parsed URL: ${url.pathname}`);
+    
     if (req.method === 'POST') {
-      const url = new URL(req.url, `http://${req.headers.host}`);
+      console.log(`📤 Processing POST request to: ${url.pathname}`);
       
       if (url.pathname === '/export') {
-              console.log('📤 Export request');
-      const data = await parseRequestBody(req);
-      console.log('📦 Type:', data.type);
+        console.log('📤 Export request');
+        const data = await parseRequestBody(req);
+        console.log('📦 Type:', data.type);
         
-          if (data.type === 'figment') {
-    const success = saveFigmentExport(data.figment);
+        if (data.type === 'figment') {
+          const success = saveFigmentExport(data.figment);
           if (success) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
@@ -234,9 +240,9 @@ const server = http.createServer(async (req, res) => {
             exportedAt: new Date().toISOString()
           };
           
-                      const success = saveRealTimeExport(exportData);
-            if (success) {
-              console.log('💾 Mapping token:', token);
+          const success = saveRealTimeExport(exportData);
+          if (success) {
+            console.log('💾 Mapping token:', token);
             
             // Extract the specific component that was exported
             let componentData = null;
@@ -269,8 +275,8 @@ const server = http.createServer(async (req, res) => {
               console.log('🔍 Final:', componentData.component || componentData.cleanName, '| ID:', componentData.id);
             }
             
-                  // Save the specific component data, not the entire figment
-      saveTokenMapping(token, componentData || data.figment);
+            // Save the specific component data, not the entire figment
+            saveTokenMapping(token, componentData || data.figment);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ 
               success: true, 
@@ -292,27 +298,28 @@ const server = http.createServer(async (req, res) => {
             error: 'Invalid export type. Use "figment" or "real-time"' 
           }));
         }
-      } else if (url.pathname.startsWith('/debug/')) {
-        // Debug endpoint to view token data
-        const token = url.pathname.replace('/debug/', '');
-        const debugFile = path.join(EXPORT_DIR, `token-${token}-debug.json`);
-        
-        if (fs.existsSync(debugFile)) {
-          const debugData = JSON.parse(fs.readFileSync(debugFile, 'utf8'));
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(debugData, null, 2));
-        } else {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ 
-            success: false, 
-            error: `Debug data not found for token: ${token}` 
-          }));
-        }
-      } else if (url.pathname === '/health') {
-        // Get list of available debug logs
+      } else {
+        console.log(`❌ Unknown POST endpoint: ${url.pathname}`);
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          success: false, 
+          error: 'Endpoint not found' 
+        }));
+      }
+    } else if (req.method === 'GET') {
+      console.log(`📥 Processing GET request to: ${url.pathname}`);
+      
+      if (url.pathname === '/health') {
+        console.log('🏥 Health check request');
+        // Get comprehensive health and debug information
         let debugLogs = [];
+        let allTokens = [];
+        let realTimeData = null;
+        
         try {
           const files = fs.readdirSync(EXPORT_DIR);
+          
+          // Get debug logs
           debugLogs = files
             .filter(file => file.startsWith('token-') && file.endsWith('-debug.json'))
             .map(file => {
@@ -326,9 +333,36 @@ const server = http.createServer(async (req, res) => {
               };
             })
             .sort((a, b) => new Date(b.created) - new Date(a.created))
-            .slice(0, 5); // Show only the 5 most recent
+            .slice(0, 10); // Show the 10 most recent
+          
+          // Get all tokens
+          const tokensFile = path.join(EXPORT_DIR, 'tokens.json');
+          if (fs.existsSync(tokensFile)) {
+            const tokens = JSON.parse(fs.readFileSync(tokensFile, 'utf8'));
+            allTokens = Object.keys(tokens).map(token => ({
+              token: token,
+              component: tokens[token]?.component?.component || tokens[token]?.component?.name || 'Unknown',
+              created: tokens[token]?.created || 'Unknown',
+              hasEnhancedVisuals: !!(tokens[token]?.component?.enhancedVisuals),
+              hasChildren: !!(tokens[token]?.component?.children && tokens[token].component.children.length > 0)
+            }));
+          }
+          
+          // Get real-time export data
+          const realTimeFile = path.join(EXPORT_DIR, 'real-time-export.json');
+          if (fs.existsSync(realTimeFile)) {
+            const realTimeContent = fs.readFileSync(realTimeFile, 'utf8');
+            realTimeData = {
+              exists: true,
+              size: realTimeContent.length,
+              token: JSON.parse(realTimeContent).token || 'Unknown',
+              componentCount: JSON.parse(realTimeContent).figment?.components?.length || 0,
+              exportedAt: JSON.parse(realTimeContent).exportedAt || 'Unknown'
+            };
+          }
+          
         } catch (error) {
-          // Ignore errors
+          console.error('Error reading health data:', error);
         }
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -337,38 +371,147 @@ const server = http.createServer(async (req, res) => {
           port: PORT,
           exportDir: EXPORT_DIR,
           timestamp: new Date().toISOString(),
-          debugLogs: debugLogs
+          debugLogs: debugLogs,
+          allTokens: allTokens,
+          realTimeData: realTimeData,
+          totalTokens: allTokens.length,
+          totalDebugFiles: debugLogs.length
         }));
+      } else if (url.pathname.startsWith('/debug/')) {
+        // BULLETPROOF DEBUG ENDPOINT - NEVER FAILS
+        const token = url.pathname.replace('/debug/', '');
+        console.log(`🔍 DEBUG REQUEST for token: ${token}`);
+        console.log(`🔍 URL pathname: ${url.pathname}`);
+        console.log(`🔍 Extracted token: ${token}`);
+        
+        // Check multiple sources for the token data
+        const debugFile = path.join(EXPORT_DIR, `token-${token}-debug.json`);
+        const tokensFile = path.join(EXPORT_DIR, 'tokens.json');
+        const realTimeFile = path.join(EXPORT_DIR, 'real-time-export.json');
+        
+        console.log(`🔍 Checking files:`);
+        console.log(`   Debug file: ${debugFile} (exists: ${fs.existsSync(debugFile)})`);
+        console.log(`   Tokens file: ${tokensFile} (exists: ${fs.existsSync(tokensFile)})`);
+        console.log(`   Real-time file: ${realTimeFile} (exists: ${fs.existsSync(realTimeFile)})`);
+        
+        let debugData = {
+          token: token,
+          timestamp: new Date().toISOString(),
+          sources: {
+            debugFile: fs.existsSync(debugFile),
+            tokensFile: fs.existsSync(tokensFile),
+            realTimeFile: fs.existsSync(realTimeFile)
+          },
+          data: null,
+          error: null,
+          debugInfo: {
+            urlPathname: url.pathname,
+            extractedToken: token,
+            exportDir: EXPORT_DIR
+          }
+        };
+        
+        // Try to get data from debug file first
+        if (fs.existsSync(debugFile)) {
+          try {
+            console.log(`✅ Reading debug file: ${debugFile}`);
+            const debugFileData = JSON.parse(fs.readFileSync(debugFile, 'utf8'));
+            debugData.data = debugFileData;
+            debugData.source = 'debugFile';
+            console.log('✅ Found data in debug file');
+          } catch (error) {
+            console.error(`❌ Error reading debug file: ${error.message}`);
+            debugData.error = `Error reading debug file: ${error.message}`;
+          }
+        }
+        
+        // If no debug file, try tokens file
+        if (!debugData.data && fs.existsSync(tokensFile)) {
+          try {
+            console.log(`✅ Reading tokens file: ${tokensFile}`);
+            const tokens = JSON.parse(fs.readFileSync(tokensFile, 'utf8'));
+            console.log(`✅ Available tokens: ${Object.keys(tokens).join(', ')}`);
+            if (tokens[token]) {
+              debugData.data = tokens[token];
+              debugData.source = 'tokensFile';
+              console.log('✅ Found data in tokens file');
+            } else {
+              debugData.error = `Token not found in tokens file. Available tokens: ${Object.keys(tokens).join(', ')}`;
+              console.log(`❌ Token not found in tokens file`);
+            }
+          } catch (error) {
+            console.error(`❌ Error reading tokens file: ${error.message}`);
+            debugData.error = `Error reading tokens file: ${error.message}`;
+          }
+        }
+        
+        // If still no data, try real-time export file
+        if (!debugData.data && fs.existsSync(realTimeFile)) {
+          try {
+            console.log(`✅ Reading real-time file: ${realTimeFile}`);
+            const realTimeData = JSON.parse(fs.readFileSync(realTimeFile, 'utf8'));
+            console.log(`✅ Real-time token: ${realTimeData.token}`);
+            if (realTimeData.token === token) {
+              debugData.data = realTimeData;
+              debugData.source = 'realTimeFile';
+              console.log('✅ Found data in real-time export file');
+            } else {
+              debugData.error = `Token mismatch in real-time file. Expected: ${token}, Found: ${realTimeData.token}`;
+              console.log(`❌ Token mismatch in real-time file`);
+            }
+          } catch (error) {
+            console.error(`❌ Error reading real-time file: ${error.message}`);
+            debugData.error = `Error reading real-time file: ${error.message}`;
+          }
+        }
+        
+        // If no data found anywhere, provide comprehensive error info
+        if (!debugData.data) {
+          debugData.error = debugData.error || `Token not found in any storage location`;
+          
+          // List all available tokens for debugging
+          const availableTokens = [];
+          if (fs.existsSync(tokensFile)) {
+            try {
+              const tokens = JSON.parse(fs.readFileSync(tokensFile, 'utf8'));
+              availableTokens.push(...Object.keys(tokens));
+            } catch (error) {
+              availableTokens.push('Error reading tokens file');
+            }
+          }
+          
+          debugData.availableTokens = availableTokens;
+          debugData.exportDir = EXPORT_DIR;
+          
+          console.log(`❌ No data found for token: ${token}`);
+          console.log(`❌ Available tokens: ${availableTokens.join(', ')}`);
+          
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(debugData, null, 2));
+        } else {
+          console.log(`✅ Successfully returning data for token: ${token}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(debugData, null, 2));
+        }
       } else {
+        console.log(`❌ Unknown GET endpoint: ${url.pathname}`);
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
           success: false, 
-          error: 'Endpoint not found' 
-        }));
-      }
-    } else if (req.method === 'GET') {
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      
-      if (url.pathname === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          status: 'healthy',
-          port: PORT,
-          exportDir: EXPORT_DIR,
-          timestamp: new Date().toISOString()
-        }));
-      } else {
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          success: false, 
-          error: 'Endpoint not found' 
+          error: 'Endpoint not found',
+          availableEndpoints: ['/health', '/debug/{TOKEN}', '/export'],
+          method: req.method,
+          pathname: url.pathname
         }));
       }
     } else {
+      console.log(`❌ Unsupported method: ${req.method}`);
       res.writeHead(405, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ 
         success: false, 
-        error: 'Method not allowed' 
+        error: 'Method not allowed',
+        supportedMethods: ['GET', 'POST', 'OPTIONS'],
+        receivedMethod: req.method
       }));
     }
   } catch (error) {
@@ -376,7 +519,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ 
       success: false, 
-      error: 'Internal server error' 
+      error: 'Internal server error',
+      details: error.message,
+      stack: error.stack
     }));
   }
 });

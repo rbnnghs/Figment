@@ -259,7 +259,6 @@ const DesignBlueprintExporter = () => {
     // Always copy token to clipboard first (primary UX)
     if (token) {
       handleTokenCopy(token);
-      // showSuccessNotification(`✅ Token copied to clipboard!\n\nToken: ${token}\n\nUse this token with your AI assistant to access the design data.`);
     }
     
     // Try to send to bridge server for MCP availability (secondary)
@@ -269,10 +268,10 @@ const DesignBlueprintExporter = () => {
     if (bridgeResult.success) {
       console.log('✅ Data sent to bridge server successfully');
       console.log('📁 Bridge file location:', bridgeResult.file);
-      // Don't show additional notification - token copy is the primary action
+      // showSuccessNotification(`✅ Export complete!\n\nToken: ${token}\n\n✅ Copied to clipboard\n✅ Bridge connected\n\nData available for MCP server and AI assistants.`);
     } else {
       console.log('⚠️ Bridge server unavailable - token is still available for MCP use');
-      // Token is already copied, so no additional action needed
+      // showSuccessNotification(`✅ Token copied: ${token}\n\n⚠️ Bridge server not found\n\nStart the bridge server with: npm run bridge`);
     }
   };
 
@@ -298,13 +297,20 @@ const DesignBlueprintExporter = () => {
       console.log('🌉 Sending to bridge server:', BRIDGE_URL);
       console.log('📦 Data size:', JSON.stringify(exportData).length, 'bytes');
       
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
       const response = await fetch(BRIDGE_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(exportData)
+        body: JSON.stringify(exportData),
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -322,9 +328,24 @@ const DesignBlueprintExporter = () => {
       
     } catch (error) {
       console.error('❌ Bridge server communication error:', error);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMessage = 'Bridge server timeout - server may not be running';
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Bridge server not found - start with: npm run bridge';
+        } else if (error.message.includes('CORS')) {
+          errorMessage = 'CORS error - check bridge server configuration';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: errorMessage
       };
     }
   };

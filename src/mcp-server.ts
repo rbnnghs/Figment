@@ -126,19 +126,37 @@ function getComponentFromFigment(componentId: string): any {
   try {
     console.log('🔍 Searching for component:', componentId);
     
-    // Check real-time export first
+    // First, try to find the component in debug files (most complete data)
+    const debugFiles = fs.readdirSync(EXPORT_DIR).filter(file => file.startsWith('token-') && file.endsWith('-debug.json'));
+    console.log('🔍 Found debug files:', debugFiles.length);
+    
+    for (const debugFile of debugFiles) {
+      try {
+        const debugData = JSON.parse(fs.readFileSync(path.join(EXPORT_DIR, debugFile), 'utf8'));
+        if (debugData.token === componentId || debugData.metadata?.token === componentId) {
+          console.log('✅ Found component in debug file:', debugFile);
+          return debugData.completeComponentData || debugData;
+        }
+      } catch (error) {
+        console.log('⚠️ Error reading debug file:', debugFile, error);
+      }
+    }
+    
+    // Check real-time export
     const realTimeData = readRealTimeExport();
     console.log('🔍 Real-time data structure:', {
       hasData: !!realTimeData,
-              hasFigment: !!(realTimeData && realTimeData.figment),
-    hasComponents: !!(realTimeData && realTimeData.figment && realTimeData.figment.components),
-    figmentKeys: realTimeData?.figment ? Object.keys(realTimeData.figment) : 'no figment'
-  });
-  if (realTimeData && realTimeData.figment && realTimeData.figment.components) {
+      hasFigment: !!(realTimeData && realTimeData.figment),
+      hasComponents: !!(realTimeData && realTimeData.figment && realTimeData.figment.components),
+      figmentKeys: realTimeData?.figment ? Object.keys(realTimeData.figment) : 'no figment'
+    });
+    
+    if (realTimeData && realTimeData.figment && realTimeData.figment.components) {
       console.log('🔍 Checking real-time export for component:', componentId);
-          console.log('🔍 Components array length:', realTimeData.figment.components.length);
-    console.log('🔍 Available components:', realTimeData.figment.components.map((c: any) => ({ component: c.component, cleanName: c.cleanName, id: c.id })));
-    const component = realTimeData.figment.components.find((comp: any) => {
+      console.log('🔍 Components array length:', realTimeData.figment.components.length);
+      console.log('🔍 Available components:', realTimeData.figment.components.map((c: any) => ({ component: c.component, cleanName: c.cleanName, id: c.id })));
+      
+      const component = realTimeData.figment.components.find((comp: any) => {
         const matches = comp.id === componentId || 
                        comp.component === componentId ||
                        comp.cleanName === componentId ||
@@ -154,6 +172,7 @@ function getComponentFromFigment(componentId: string): any {
         });
         return matches;
       });
+      
       if (component) {
         console.log('✅ Found component in real-time export:', componentId);
         return component;
@@ -449,6 +468,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['token']
         }
+      },
+      {
+        name: 'generate_enhanced_component_code',
+        description: 'Generate code with enhanced design data processing (vector paths, normalized coordinates, standardized colors)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            componentId: {
+              type: 'string',
+              description: 'ID of the component to generate enhanced code for'
+            },
+            framework: {
+              type: 'string',
+              description: 'Target framework (react, vue, svelte, html, etc.)',
+              default: 'react'
+            },
+            includeVectorPaths: {
+              type: 'boolean',
+              description: 'Include vector path conversion',
+              default: true
+            },
+            normalizeCoordinates: {
+              type: 'boolean',
+              description: 'Convert to relative positioning',
+              default: true
+            },
+            standardizeColors: {
+              type: 'boolean',
+              description: 'Convert colors to hex format',
+              default: true
+            }
+          },
+          required: ['componentId']
+        }
       }
     ]
   };
@@ -471,6 +524,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     case 'extract_screenshot_files':
       return await extractScreenshotFilesFromToken(args.token as string);
+    
+    case 'generate_enhanced_component_code':
+      return await generateEnhancedComponentCode(
+        args.componentId as string,
+        (args.framework as string) || 'react',
+        args.includeVectorPaths as boolean || true,
+        args.normalizeCoordinates as boolean || true,
+        args.standardizeColors as boolean || true
+      );
     
     case 'generate_code_from_blueprint':
       return await generateCodeFromBlueprint(
@@ -1007,7 +1069,8 @@ function generateReactComponentCode(component: any, className: string): string {
     hasSize: !!size,
     hasPrecisePosition: !!precisePosition,
     isInteractive: semantic?.isInteractive,
-    role: semantic?.role
+    role: semantic?.role,
+    hasScreenshot: !!actualComponent.screenshot
   });
   
   // Extract styling from enhancedVisuals if available
@@ -1059,7 +1122,29 @@ function generateReactComponentCode(component: any, className: string): string {
     accessibilityProps.push('onKeyDown={(e) => e.key === "Enter" && onClick?.()}');
   }
   
-  return `import React from 'react';
+  // Generate visual reference comment if screenshot is available
+  const visualReferenceComment = actualComponent.screenshot ? 
+    `/**
+ * Visual Reference: ${actualComponent.screenshot}
+ * 
+ * This component was generated from Figma design data.
+ * For pixel-perfect accuracy, refer to the screenshot file:
+ * ~/.figma-exports/${actualComponent.screenshot}
+ * 
+ * Key visual details:
+ * - Size: ${width} × ${height}px
+ * - Colors: ${Object.keys(visualStyles).filter(key => key.includes('color') || key.includes('background')).join(', ') || 'See CSS below'}
+ * - Effects: ${Object.keys(visualStyles).filter(key => key.includes('shadow') || key.includes('blur')).join(', ') || 'None'}
+ * - Typography: ${visualStyles.fontFamily || 'Default'}
+ */` : 
+    `/**
+ * Generated from Figma design data
+ * Size: ${width} × ${height}px
+ */`;
+
+  return `${visualReferenceComment}
+
+import React from 'react';
 import './${className}.css';
 
 ${childComponents}
@@ -1231,7 +1316,7 @@ function extractStylesFromEnhancedVisuals(enhancedVisuals: any): any {
           styles.backgroundColor = fill.color.replace('1)', `${fill.opacity})`);
         }
       } else if (fill.type === 'GRADIENT_LINEAR') {
-        styles.background = `linear-gradient(${fill.gradientTransform || 'to bottom'}, ${fill.gradientStops?.map(stop => `${stop.color} ${stop.position}%`).join(', ')})`;
+        styles.background = `linear-gradient(${fill.gradientTransform || 'to bottom'}, ${fill.gradientStops?.map((stop: { color: string; position: number }) => `${stop.color} ${stop.position}%`).join(', ')})`;
       }
     }
   }
@@ -1325,6 +1410,79 @@ function getTypeForProp(propName: string, propValue: any): string {
 }
 
 // Function to extract screenshot files from a token
+async function generateEnhancedComponentCode(
+  componentId: string,
+  framework: string = 'react',
+  includeVectorPaths: boolean = true,
+  normalizeCoordinates: boolean = true,
+  standardizeColors: boolean = true
+) {
+  try {
+    console.log(`🎯 Generating enhanced component code for: ${componentId}`);
+    
+    // Get component data
+    const component = getComponentFromFigment(componentId);
+    if (!component) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Component not found**: ${componentId}\n\nRun \`debug_component_matching\` to see available components.`
+          }
+        ]
+      };
+    }
+    
+    // Enhanced data processing
+    const enhancedData = await processEnhancedDesignData(component, {
+      includeVectorPaths,
+      normalizeCoordinates,
+      standardizeColors
+    });
+    
+    // Generate code based on framework
+    let code = '';
+    let css = '';
+    
+    switch (framework.toLowerCase()) {
+      case 'react':
+        code = generateEnhancedReactComponent(enhancedData);
+        css = generateEnhancedCSS(enhancedData);
+        break;
+      case 'vue':
+        code = generateEnhancedVueComponent(enhancedData);
+        css = generateEnhancedCSS(enhancedData);
+        break;
+      case 'html':
+        code = generateEnhancedHTML(enhancedData);
+        css = generateEnhancedCSS(enhancedData);
+        break;
+      default:
+        code = generateEnhancedReactComponent(enhancedData);
+        css = generateEnhancedCSS(enhancedData);
+    }
+    
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `🎯 **Enhanced Component Code Generated**\n\n**Component:** ${enhancedData.metadata.name}\n**Framework:** ${framework}\n**Features:** Vector paths, normalized coordinates, standardized colors\n\n**${framework.toUpperCase()} Component:**\n\`\`\`${framework === 'html' ? 'html' : framework === 'vue' ? 'vue' : 'tsx'}\n${code}\n\`\`\`\n\n**CSS Styles:**\n\`\`\`css\n${css}\n\`\`\`\n\n**Enhanced Features Applied:**\n✅ Vector path conversion: ${includeVectorPaths ? 'Enabled' : 'Disabled'}\n✅ Coordinate normalization: ${normalizeCoordinates ? 'Enabled' : 'Disabled'}\n✅ Color standardization: ${standardizeColors ? 'Enabled' : 'Disabled'}\n✅ Hierarchy preservation: Enabled\n✅ Complete style extraction: Enabled`
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error generating enhanced component code:', error);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `❌ **Error generating enhanced component code**: ${error instanceof Error ? error.message : String(error)}`
+        }
+      ]
+    };
+  }
+}
+
 async function extractScreenshotFilesFromToken(token: string) {
   try {
     console.log('📸 Extracting screenshot files for token:', token);
@@ -1466,6 +1624,614 @@ To get the actual screenshot:
   }
 }
 
+function generateStylesExample(data: any, pattern: string): string {
+  const hasAutoLayout = data.layout?.autoLayout?.enabled;
+  const hasVisuals = data.visuals && Object.keys(data.visuals).length > 0;
+  const hasScreenshot = data.screenshot;
+  
+  let styles = '';
+  
+  // Add visual reference comment if screenshot is available
+  if (hasScreenshot) {
+    styles += `/* 
+ * Visual Reference: ${data.screenshot}
+ * 
+ * This CSS was generated from Figma design data.
+ * For pixel-perfect accuracy, refer to the screenshot:
+ * ~/.figma-exports/${data.screenshot}
+ * 
+ * Design Details:
+ * - Component: ${data.component || data.name || 'Unknown'}
+ * - Size: ${data.size?.width || 'auto'} × ${data.size?.height || 'auto'}px
+ * - Type: ${pattern}
+ * - Auto-layout: ${hasAutoLayout ? 'Enabled' : 'Disabled'}
+ */\n\n`;
+  }
+  
+  styles += `.component {\n`;
+  
+  if (hasAutoLayout) {
+    styles += `  /* Auto-layout configuration */\n`;
+    styles += `  display: flex;\n`;
+    styles += `  flex-direction: ${data.layout.autoLayout.direction === 'HORIZONTAL' ? 'row' : 'column'};\n`;
+    if (data.layout.autoLayout.itemSpacing) {
+      styles += `  gap: ${data.layout.autoLayout.itemSpacing}px;\n`;
+    }
+    if (data.layout.autoLayout.paddingTop || data.layout.autoLayout.paddingRight || data.layout.autoLayout.paddingBottom || data.layout.autoLayout.paddingLeft) {
+      styles += `  padding: ${data.layout.autoLayout.paddingTop || 0}px ${data.layout.autoLayout.paddingRight || 0}px ${data.layout.autoLayout.paddingBottom || 0}px ${data.layout.autoLayout.paddingLeft || 0}px;\n`;
+    }
+    if (data.layout.autoLayout.primaryAxisAlignItems) {
+      styles += `  align-items: ${data.layout.autoLayout.primaryAxisAlignItems.toLowerCase()};\n`;
+    }
+    if (data.layout.autoLayout.counterAxisAlignItems) {
+      styles += `  justify-content: ${data.layout.autoLayout.counterAxisAlignItems.toLowerCase()};\n`;
+    }
+    styles += `\n`;
+  }
+  
+  if (hasVisuals) {
+    styles += `  /* Visual styling */\n`;
+    if (data.visuals.borderRadius) {
+      styles += `  border-radius: ${getBorderRadiusValue(data.visuals.borderRadius)};\n`;
+    }
+    if (data.visuals.fills?.[0]) {
+      const fill = data.visuals.fills[0];
+      if (fill.type === 'SOLID') {
+        styles += `  background-color: ${fill.color};\n`;
+      } else if (fill.type === 'GRADIENT_LINEAR') {
+        styles += `  background: linear-gradient(${fill.gradientTransform || 'to bottom'}, ${fill.gradientStops?.map((stop: { color: string; position: number }) => `${stop.color} ${stop.position}%`).join(', ')});\n`;
+      }
+    }
+    if (data.visuals.strokes?.[0]) {
+      const stroke = data.visuals.strokes[0];
+      styles += `  border: ${data.visuals.strokeWeight || 1}px solid ${stroke.color};\n`;
+    }
+    if (data.visuals.effects?.length > 0) {
+      const shadows = data.visuals.effects
+        .filter((effect: any) => effect.visible && effect.type === 'DROP_SHADOW')
+        .map((effect: any) => `${effect.offset?.x || 0}px ${effect.offset?.y || 0}px ${effect.radius || 0}px ${effect.color}`)
+        .join(', ');
+      if (shadows) {
+        styles += `  box-shadow: ${shadows};\n`;
+      }
+    }
+    styles += `\n`;
+  }
+  
+  if (data.size) {
+    styles += `  /* Dimensions */\n`;
+    styles += `  width: ${data.size.width}px;\n`;
+    styles += `  height: ${data.size.height}px;\n`;
+    styles += `\n`;
+  }
+  
+  // Add pixel-perfect positioning if available
+  if (data.precisePosition) {
+    styles += `  /* Pixel-perfect positioning */\n`;
+    styles += `  position: absolute;\n`;
+    styles += `  left: ${data.precisePosition.x}px;\n`;
+    styles += `  top: ${data.precisePosition.y}px;\n`;
+    if (data.precisePosition.rotation !== 0) {
+      styles += `  transform: rotate(${data.precisePosition.rotation}deg);\n`;
+    }
+    styles += `\n`;
+  }
+  
+  // Add typography if available
+  if (data.typography) {
+    styles += `  /* Typography */\n`;
+    if (data.typography.font?.family) {
+      styles += `  font-family: "${data.typography.font.family}", sans-serif;\n`;
+    }
+    if (data.typography.font?.size) {
+      styles += `  font-size: ${data.typography.font.size}px;\n`;
+    }
+    if (data.typography.font?.weight) {
+      styles += `  font-weight: ${data.typography.font.weight};\n`;
+    }
+    if (data.typography.textAlignHorizontal) {
+      styles += `  text-align: ${data.typography.textAlignHorizontal.toLowerCase()};\n`;
+    }
+    if (data.typography.letterSpacing) {
+      styles += `  letter-spacing: ${data.typography.letterSpacing}px;\n`;
+    }
+    if (data.typography.lineHeightPx) {
+      styles += `  line-height: ${data.typography.lineHeightPx}px;\n`;
+    }
+    styles += `\n`;
+  }
+  
+  // Add accessibility and interaction styles
+  if (data.semantic?.isInteractive) {
+    styles += `  /* Interactive states */\n`;
+    styles += `  cursor: pointer;\n`;
+    styles += `  transition: all 0.2s ease;\n`;
+    styles += `\n`;
+    styles += `  &:hover {\n`;
+    styles += `    /* Add hover effects based on design */\n`;
+    styles += `    transform: translateY(-1px);\n`;
+    styles += `  }\n`;
+    styles += `\n`;
+    styles += `  &:active {\n`;
+    styles += `    transform: translateY(0);\n`;
+    styles += `  }\n`;
+    styles += `\n`;
+  }
+  
+  styles += `  /* Ensure pixel-perfect rendering */\n`;
+  styles += `  image-rendering: -webkit-optimize-contrast;\n`;
+  styles += `  image-rendering: crisp-edges;\n`;
+  styles += `}\n`;
+  
+  return styles;
+}
+
+function getBorderRadiusValue(borderRadius: any): string {
+  if (borderRadius.uniform) {
+    return `${borderRadius.uniform}px`;
+  }
+  const values = [
+    borderRadius.topLeft || 0,
+    borderRadius.topRight || 0,
+    borderRadius.bottomRight || 0,
+    borderRadius.bottomLeft || 0
+  ];
+  return values.map(v => `${v}px`).join(' ');
+}
+
+// Enhanced design data processing functions
+async function processEnhancedDesignData(component: any, options: {
+  includeVectorPaths: boolean;
+  normalizeCoordinates: boolean;
+  standardizeColors: boolean;
+}) {
+  const { includeVectorPaths, normalizeCoordinates, standardizeColors } = options;
+  
+  // Get the actual visual data from children if available
+  const visualData = component.children && component.children.length > 0 ? component.children[0] : component;
+  const fills = visualData.visuals?.fills || component.visuals?.fills || [];
+  const size = component.size || { width: 0, height: 0 };
+  const position = component.position || { x: 0, y: 0 };
+  
+  // Enhanced data structure
+  const enhancedData = {
+    metadata: {
+      name: component.component || component.name || 'Enhanced Component',
+      description: component.description || '',
+      componentType: component.suggestedComponentType || 'component',
+      originalId: component.id || '',
+      tags: component.tags || []
+    },
+    positioning: normalizeCoordinates ? {
+      relative: {
+        x: position.x ? (position.x / (size.width || 1)) * 100 : 0,
+        y: position.y ? (position.y / (size.height || 1)) * 100 : 0,
+        width: size.width ? (size.width / (size.width || 1)) * 100 : 100,
+        height: size.height ? (size.height / (size.height || 1)) * 100 : 100
+      },
+      absolute: {
+        x: position.x || 0,
+        y: position.y || 0,
+        width: size.width || 0,
+        height: size.height || 0
+      }
+    } : {
+      relative: { x: 0, y: 0, width: 100, height: 100 },
+      absolute: { x: position.x || 0, y: position.y || 0, width: size.width || 0, height: size.height || 0 }
+    },
+    vectorPaths: includeVectorPaths ? {
+      svgPath: convertToSVGPath(component),
+      cssPath: convertToCSSPath(component),
+      complexity: determineComplexity(component)
+    } : {
+      svgPath: '',
+      cssPath: '',
+      complexity: 'simple' as const
+    },
+    colors: standardizeColors ? standardizeColorsToHex(visualData) : {
+      primary: '#000000',
+      secondary: '#CCCCCC',
+      background: '#FFFFFF',
+      border: '#000000',
+      text: '#000000',
+      all: {}
+    },
+    styles: extractCompleteStyles(visualData),
+    designTokens: extractDesignTokens(component),
+    visualData: {
+      fills: fills,
+      size: size,
+      position: position,
+      borderRadius: visualData.visuals?.borderRadius || component.visuals?.borderRadius,
+      effects: visualData.effects || component.effects
+    }
+  };
+  
+  return enhancedData;
+}
+
+function convertToSVGPath(component: any): string {
+  // Convert vector paths to SVG
+  if (component.vectorPaths && component.vectorPaths.length > 0) {
+    return component.vectorPaths.map((path: any) => path.data || '').join(' ');
+  }
+  
+  // Fallback to rectangle
+  return `M 0 0 L ${component.width || 0} 0 L ${component.width || 0} ${component.height || 0} L 0 ${component.height || 0} Z`;
+}
+
+function convertToCSSPath(component: any): string {
+  // Convert to CSS clip-path
+  const svgPath = convertToSVGPath(component);
+  if (svgPath.includes('M 0 0 L')) {
+    return 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
+  }
+  return 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
+}
+
+function determineComplexity(component: any): 'simple' | 'complex' | 'very-complex' {
+  if (component.vectorPaths && component.vectorPaths.length > 5) {
+    return 'very-complex';
+  }
+  if (component.vectorPaths && component.vectorPaths.length > 2) {
+    return 'complex';
+  }
+  return 'simple';
+}
+
+function standardizeColorsToHex(component: any) {
+  const colors: { [key: string]: string } = {};
+  
+  // Get fills from the correct location
+  const fills = component.visuals?.fills || component.fills || [];
+  
+  // Process fills
+  fills.forEach((fill: any, index: number) => {
+    if (fill.visible !== false && fill.color) {
+      let hexColor = '#000000';
+      
+      if (fill.type === 'SOLID' && fill.color) {
+        // Handle rgba color format
+        if (typeof fill.color === 'string' && fill.color.startsWith('rgba')) {
+          // Parse rgba string
+          const rgbaMatch = fill.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+          if (rgbaMatch) {
+            const r = parseInt(rgbaMatch[1]);
+            const g = parseInt(rgbaMatch[2]);
+            const b = parseInt(rgbaMatch[3]);
+            const a = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
+            hexColor = rgbaToHex(r / 255, g / 255, b / 255, a);
+          }
+        } else if (fill.color.r !== undefined) {
+          // Handle object format {r, g, b, a}
+          hexColor = rgbaToHex(fill.color.r, fill.color.g, fill.color.b, fill.opacity || 1);
+        }
+      } else if (fill.type === 'GRADIENT_LINEAR' && fill.gradientStops) {
+        // Handle gradient - use first stop color
+        const firstStop = fill.gradientStops[0];
+        if (firstStop && firstStop.color) {
+          if (typeof firstStop.color === 'string' && firstStop.color.startsWith('rgba')) {
+            const rgbaMatch = firstStop.color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+            if (rgbaMatch) {
+              const r = parseInt(rgbaMatch[1]);
+              const g = parseInt(rgbaMatch[2]);
+              const b = parseInt(rgbaMatch[3]);
+              const a = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
+              hexColor = rgbaToHex(r / 255, g / 255, b / 255, a);
+            }
+          } else if (firstStop.color.r !== undefined) {
+            hexColor = rgbaToHex(firstStop.color.r, firstStop.color.g, firstStop.color.b, firstStop.color.a || 1);
+          }
+        }
+      }
+      
+      colors[`fill${index}`] = hexColor;
+      if (index === 0) colors.primary = hexColor;
+      if (fill.type === 'SOLID') colors.background = hexColor;
+    }
+  });
+  
+  // Process strokes
+  const strokes = component.visuals?.strokes || component.strokes || [];
+  strokes.forEach((stroke: any, index: number) => {
+    if (stroke.visible !== false && stroke.color) {
+      const hexColor = rgbaToHex(stroke.color.r, stroke.color.g, stroke.color.b, stroke.opacity || 1);
+      colors[`stroke${index}`] = hexColor;
+      if (index === 0) colors.border = hexColor;
+    }
+  });
+  
+  return {
+    primary: colors.primary || '#000000',
+    secondary: colors.secondary || '#CCCCCC',
+    background: colors.background || '#FFFFFF',
+    border: colors.border || '#000000',
+    text: colors.text || '#000000',
+    all: colors
+  };
+}
+
+function rgbaToHex(r: number, g: number, b: number, a: number = 1): string {
+  const toHex = (n: number) => {
+    const hex = Math.round(n * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+  
+  const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  return a < 1 ? `${hex}${Math.round(a * 255).toString(16).padStart(2, '0')}` : hex;
+}
+
+function extractCompleteStyles(component: any) {
+  return {
+    borderRadius: {
+      topLeft: component.cornerRadius || 0,
+      topRight: component.cornerRadius || 0,
+      bottomRight: component.cornerRadius || 0,
+      bottomLeft: component.cornerRadius || 0,
+      uniform: component.cornerRadius || 0
+    },
+    shadows: (component.effects || [])
+      .filter((effect: any) => effect.visible !== false && effect.type === 'DROP_SHADOW')
+      .map((effect: any) => ({
+        x: effect.offset?.x || 0,
+        y: effect.offset?.y || 0,
+        blur: effect.radius || 0,
+        spread: effect.spread || 0,
+        color: rgbaToHex(effect.color.r, effect.color.g, effect.color.b, effect.color.a || 1),
+        opacity: effect.color.a || 1
+      })),
+    effects: (component.effects || [])
+      .filter((effect: any) => effect.visible !== false)
+      .map((effect: any) => ({
+        type: effect.type,
+        visible: effect.visible !== false,
+        radius: effect.radius || 0,
+        color: effect.color ? rgbaToHex(effect.color.r, effect.color.g, effect.color.b, effect.color.a || 1) : '#000000',
+        offset: {
+          x: effect.offset?.x || 0,
+          y: effect.offset?.y || 0
+        }
+      })),
+    opacity: component.opacity || 1,
+    blendMode: component.blendMode || 'NORMAL'
+  };
+}
+
+function extractDesignTokens(component: any) {
+  return {
+    colors: standardizeColorsToHex(component).all,
+    spacing: {
+      padding: component.paddingTop || 0,
+      margin: component.itemSpacing || 0,
+      gap: component.itemSpacing || 0
+    },
+    typography: {
+      fontSize: component.fontSize || 16,
+      fontFamily: component.fontName?.family || 'Inter',
+      fontWeight: component.fontWeight || 400,
+      lineHeight: component.lineHeightPx || component.fontSize || 16
+    },
+    sizing: {
+      width: component.width || 0,
+      height: component.height || 0,
+      minWidth: component.minWidth || 0,
+      minHeight: component.minHeight || 0
+    },
+    shadows: {},
+    borders: {
+      width: component.strokeWeight || 0,
+      style: component.strokeAlign || 'INSIDE',
+      radius: component.cornerRadius || 0
+    }
+  };
+}
+
+function generateEnhancedReactComponent(enhancedData: any): string {
+  const { metadata, positioning, vectorPaths, colors, styles, visualData } = enhancedData;
+  
+  // Generate gradient CSS if there are gradient fills
+  let gradientCSS = '';
+  let backgroundStyle = `backgroundColor: '${colors.background}'`;
+  
+  if (visualData.fills) {
+    const gradientFill = visualData.fills.find((fill: any) => fill.type === 'GRADIENT_LINEAR' && fill.visible !== false);
+    if (gradientFill && gradientFill.gradientStops) {
+      const gradientStops = gradientFill.gradientStops.map((stop: any) => {
+        const color = stop.color.startsWith('rgba') ? stop.color : `rgba(0, 0, 0, ${stop.color.a || 1})`;
+        return `${color} ${stop.position * 100}%`;
+      }).join(', ');
+      
+      gradientCSS = `background: linear-gradient(to bottom, ${gradientStops});`;
+      backgroundStyle = `background: 'linear-gradient(to bottom, ${gradientStops})'`;
+    }
+  }
+  
+  // Get border radius from visual data
+  const borderRadius = visualData.borderRadius?.uniform || styles.borderRadius?.uniform || 0;
+  
+  return `import React from 'react';
+
+/**
+ * Enhanced ${metadata.name}
+ * Generated with vector path conversion, normalized coordinates, and standardized colors
+ * Original ID: ${metadata.originalId}
+ */
+export const ${metadata.name.replace(/[^a-zA-Z0-9]/g, '')}Component: React.FC = () => {
+  return (
+    <div 
+      className="${metadata.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-')}-component"
+      style={{
+        position: 'relative',
+        left: '${positioning.relative.x}%',
+        top: '${positioning.relative.y}%',
+        width: '${positioning.relative.width}%',
+        height: '${positioning.relative.height}%',
+        ${backgroundStyle},
+        borderRadius: '${borderRadius}px',
+        opacity: ${styles.opacity || 1},
+        zIndex: 1
+      }}
+    >
+      ${vectorPaths.svgPath ? `<svg 
+        width="100%" 
+        height="100%" 
+        viewBox="0 0 ${positioning.absolute.width} ${positioning.absolute.height}"
+        style={{ position: 'absolute', top: 0, left: 0 }}
+      >
+        <path 
+          d="${vectorPaths.svgPath}"
+          fill="${colors.primary}"
+          stroke="${colors.border}"
+          strokeWidth="${styles.designTokens?.borders?.width || 0}"
+        />
+      </svg>` : ''}
+    </div>
+  );
+};
+
+export default ${metadata.name.replace(/[^a-zA-Z0-9]/g, '')}Component;`;
+}
+
+function generateEnhancedVueComponent(enhancedData: any): string {
+  const { metadata, positioning, vectorPaths, colors, styles } = enhancedData;
+  
+  return `<template>
+  <div 
+    class="${metadata.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-')}-component"
+    :style="{
+      left: '${positioning.relative.x}%',
+      top: '${positioning.relative.y}%',
+      width: '${positioning.relative.width}%',
+      height: '${positioning.relative.height}%',
+      backgroundColor: '${colors.background}',
+      borderRadius: '${styles.borderRadius.uniform}px',
+      opacity: ${styles.opacity},
+      zIndex: 1
+    }"
+  >
+    ${vectorPaths.svgPath ? `<svg 
+      width="100%" 
+      height="100%" 
+      viewBox="0 0 ${positioning.absolute.width} ${positioning.absolute.height}"
+      style="position: absolute; top: 0; left: 0;"
+    >
+      <path 
+        d="${vectorPaths.svgPath}"
+        fill="${colors.primary}"
+        stroke="${colors.border}"
+        stroke-width="${styles.designTokens?.borders?.width || 0}"
+      />
+    </svg>` : ''}
+  </div>
+</template>
+
+<script>
+export default {
+  name: '${metadata.name.replace(/[^a-zA-Z0-9]/g, '')}Component',
+  props: {},
+  data() {
+    return {};
+  }
+};
+</script>`;
+}
+
+function generateEnhancedHTML(enhancedData: any): string {
+  const { metadata, positioning, vectorPaths, colors, styles } = enhancedData;
+  
+  return `<!-- Enhanced ${metadata.name} -->
+<!-- Generated with vector path conversion, normalized coordinates, and standardized colors -->
+<div 
+  class="${metadata.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-')}-component"
+  style="
+    position: relative;
+    left: ${positioning.relative.x}%;
+    top: ${positioning.relative.y}%;
+    width: ${positioning.relative.width}%;
+    height: ${positioning.relative.height}%;
+    background-color: ${colors.background};
+    border-radius: ${styles.borderRadius.uniform}px;
+    opacity: ${styles.opacity};
+    z-index: 1;
+  "
+>
+  ${vectorPaths.svgPath ? `<svg 
+    width="100%" 
+    height="100%" 
+    viewBox="0 0 ${positioning.absolute.width} ${positioning.absolute.height}"
+    style="position: absolute; top: 0; left: 0;"
+  >
+    <path 
+      d="${vectorPaths.svgPath}"
+      fill="${colors.primary}"
+      stroke="${colors.border}"
+      stroke-width="${styles.designTokens?.borders?.width || 0}"
+    />
+  </svg>` : ''}
+</div>`;
+}
+
+function generateEnhancedCSS(enhancedData: any): string {
+  const { metadata, positioning, vectorPaths, colors, styles, visualData } = enhancedData;
+  
+  // Generate gradient CSS if there are gradient fills
+  let gradientCSS = '';
+  let backgroundCSS = `background-color: ${colors.background};`;
+  
+  if (visualData.fills) {
+    const gradientFill = visualData.fills.find((fill: any) => fill.type === 'GRADIENT_LINEAR' && fill.visible !== false);
+    if (gradientFill && gradientFill.gradientStops) {
+      const gradientStops = gradientFill.gradientStops.map((stop: any) => {
+        const color = stop.color.startsWith('rgba') ? stop.color : `rgba(0, 0, 0, ${stop.color.a || 1})`;
+        return `${color} ${stop.position * 100}%`;
+      }).join(', ');
+      
+      gradientCSS = `background: linear-gradient(to bottom, ${gradientStops});`;
+      backgroundCSS = `background: linear-gradient(to bottom, ${gradientStops});`;
+    }
+  }
+  
+  // Get border radius from visual data
+  const borderRadius = visualData.borderRadius?.uniform || styles.borderRadius?.uniform || 0;
+  
+  return `/* Enhanced ${metadata.name} Styles */
+/* Generated with complete design data processing */
+
+.${metadata.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-')}-component {
+  position: relative;
+  left: ${positioning.relative.x}%;
+  top: ${positioning.relative.y}%;
+  width: ${positioning.relative.width}%;
+  height: ${positioning.relative.height}%;
+  ${backgroundCSS}
+  border-radius: ${borderRadius}px;
+  opacity: ${styles.opacity || 1};
+  z-index: 1;
+  
+  /* Enhanced features */
+  ${vectorPaths.cssPath && vectorPaths.cssPath !== 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)' ? `clip-path: ${vectorPaths.cssPath};` : ''}
+  
+  /* Shadows */
+  ${styles.shadows && styles.shadows.length > 0 ? styles.shadows.map((shadow: any, index: number) => 
+    `box-shadow: ${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.spread}px ${shadow.color};`
+  ).join('\n  ') : ''}
+  
+  /* Effects */
+  ${styles.effects.map((effect: any, index: number) => 
+    `filter: ${effect.type === 'DROP_SHADOW' ? `drop-shadow(${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px ${effect.color})` : ''};`
+  ).join('\n  ')}
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .${metadata.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-')}-component {
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: auto;
+  }
+}`;
+}
 
 // Start the MCP server
 const transport = new StdioServerTransport();

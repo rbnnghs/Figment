@@ -8,12 +8,19 @@
   "main": "build/main.js",
   "ui": "build/ui.js",
   "networkAccess": {
-    "allowedDomains": ["none"],
-    "devAllowedDomains": [
-      "http://localhost:3000",
-      "http://localhost:8473"
+    "allowedDomains": [
+      "http://localhost:8473",
+      "https://localhost:8473"
     ],
-    "reasoning": "Development access for bridge server communication (port 3000) and export/health check endpoints (port 8473)"
+    "devAllowedDomains": [
+      "http://localhost",
+      "https://localhost",
+      "http://localhost:3000",
+      "https://localhost:3000",
+      "http://localhost:8473",
+      "https://localhost:8473"
+    ],
+    "reasoning": "Local bridge server communication for MCP server integration (port 8473) and development testing (port 3000)"
   },
   "documentAccess": "dynamic-page"
 }

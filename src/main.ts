@@ -259,14 +259,37 @@ async function captureComponentScreenshot(node: SceneNode): Promise<string | nul
       }
     };
 
-    const imageBytes = await node.exportAsync(exportSettings);
+    let imageBytes = await node.exportAsync(exportSettings);
     console.log('📸 Image exported, size:', imageBytes.length, 'bytes');
 
-    // Check if image is too large (> 1MB base64 = ~750KB raw)
-    if (imageBytes.length > 750000) {
-      console.log('⚠️ Screenshot too large, skipping to save storage');
-      node.visible = originalVisible;
-      return null;
+    // Check if image is too large (> 2MB base64 = ~1.5MB raw for better quality)
+    if (imageBytes.length > 1500000) {
+      console.log('⚠️ Screenshot too large, trying with lower quality...');
+      
+             // Try with lower quality settings
+       const lowerQualitySettings: ExportSettingsImage = {
+         format: 'PNG',
+         constraint: { type: 'SCALE', value: 2 }, // Scale down to 2x instead of 4x
+         contentsOnly: true
+       };
+      
+      try {
+        const lowerQualityBytes = await node.exportAsync(lowerQualitySettings);
+        console.log('📸 Lower quality image exported, size:', lowerQualityBytes.length, 'bytes');
+        
+        if (lowerQualityBytes.length > 1500000) {
+          console.log('⚠️ Still too large, skipping screenshot');
+          node.visible = originalVisible;
+          return null;
+        }
+        
+        // Use the lower quality image
+        imageBytes = lowerQualityBytes;
+      } catch (error) {
+        console.log('⚠️ Lower quality export failed, skipping screenshot');
+        node.visible = originalVisible;
+        return null;
+      }
     }
 
     // Generate a unique filename for the screenshot
@@ -295,17 +318,71 @@ async function captureComponentScreenshot(node: SceneNode): Promise<string | nul
   }
 }
 
-// Function to clean up old screenshots and tokens to prevent storage quota issues
+// Function to check storage usage and estimate available space
+async function checkStorageUsage(): Promise<{ used: number; available: number; total: number }> {
+  try {
+    const keys = await figma.clientStorage.keysAsync();
+    let totalUsed = 0;
+    
+    // Estimate storage usage by checking key sizes
+    for (const key of keys) {
+      const value = await figma.clientStorage.getAsync(key);
+      if (value) {
+        // Estimate size: key length + JSON stringified value length
+        const estimatedSize = key.length + JSON.stringify(value).length;
+        totalUsed += estimatedSize;
+      }
+    }
+    
+    const total = 5 * 1024 * 1024; // 5MB in bytes
+    const available = total - totalUsed;
+    
+    console.log(`📊 Storage usage: ${(totalUsed / 1024 / 1024).toFixed(2)}MB used, ${(available / 1024 / 1024).toFixed(2)}MB available`);
+    
+    return {
+      used: totalUsed,
+      available,
+      total
+    };
+  } catch (error) {
+    console.error('❌ Error checking storage usage:', error);
+    return { used: 0, available: 5 * 1024 * 1024, total: 5 * 1024 * 1024 };
+  }
+}
+
+// Enhanced cleanup with storage usage awareness
 async function cleanupOldScreenshots() {
   try {
+    const storageInfo = await checkStorageUsage();
     const keys = await figma.clientStorage.keysAsync();
     const screenshotKeys = keys.filter(key => key.startsWith('screenshot_'));
     const tokenKeys = keys.filter(key => key.startsWith('figma_'));
     
     console.log(`🔍 Found ${screenshotKeys.length} screenshots and ${tokenKeys.length} tokens in storage`);
     
+    // If storage is more than 80% full, be very aggressive
+    if (storageInfo.used > storageInfo.total * 0.8) {
+      console.log('🚨 Storage nearly full, performing emergency cleanup...');
+      
+      // Keep only the most recent screenshot and token
+      if (screenshotKeys.length > 1) {
+        const keysToDelete = screenshotKeys.slice(0, screenshotKeys.length - 1);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Emergency cleanup deleted screenshot:', key);
+        }
+      }
+      
+      if (tokenKeys.length > 1) {
+        const keysToDelete = tokenKeys.slice(0, tokenKeys.length - 1);
+        for (const key of keysToDelete) {
+          await figma.clientStorage.deleteAsync(key);
+          console.log('🗑️ Emergency cleanup deleted token:', key);
+        }
+      }
+    }
     // If we have too many items, be more aggressive with cleanup
-    if (screenshotKeys.length > 3 || tokenKeys.length > 5) {
+    else if (screenshotKeys.length > 3 || tokenKeys.length > 5) {
       console.log('🧹 Performing aggressive cleanup...');
       
       // Delete all but the 2 most recent screenshots

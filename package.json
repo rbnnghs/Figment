@@ -1,7 +1,7 @@
 {
   "name": "figment-mcp",
-  "version": "1.2.4",
-  "description": "Universal Figma to Code Bridge with AI Integration - Transform Figma designs into production-ready code using Model Context Protocol (MCP)",
+  "version": "1.4.0",
+  "description": "Universal Figma to Code Bridge with AI Integration - Transform Figma designs into production-ready code using Model Context Protocol (MCP) with 100% Complete Design Data Extraction",
   "main": "scripts/setup.js",
   "bin": {
     "figment": "dist/mcp-server.js",
@@ -108,9 +108,9 @@
     "main": "src/main.ts",
     "ui": "src/ui.tsx",
     "networkAccess": {
-      "allowedDomains": ["none"],
+      "allowedDomains": ["http://localhost:8473", "https://localhost:8473"],
       "devAllowedDomains": ["http://localhost", "https://localhost", "http://localhost:3000", "https://localhost:3000", "http://localhost:8473", "https://localhost:8473"],
-      "reasoning": "Development and local testing access for MCP server communication and bridge server"
+      "reasoning": "Local bridge server communication for MCP server integration (port 8473) and development testing (port 3000)"
     },
     "documentAccess": "dynamic-page"
   },

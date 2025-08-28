@@ -22,7 +22,7 @@ if (fs.existsSync(manifestSrc)) {
   // Verify the copy was successful
   if (fs.existsSync(manifestDest)) {
     const manifestContent = fs.readFileSync(manifestDest, 'utf8');
-    if (manifestContent.includes('"localhost"') && manifestContent.includes('"127.0.0.1"')) {
+    if (manifestContent.includes('"localhost:8473"')) {
       console.log('✅ Manifest verification passed - correct allowedDomains found');
     } else {
       console.warn('⚠️  Manifest verification failed - allowedDomains may be incorrect');

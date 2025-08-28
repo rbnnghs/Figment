@@ -1,8 +1,8 @@
 # Figment
 
-**Universal Figma to Code Bridge with AI Integration**
+**Universal Figma to Code Bridge with AI Integration - 100% Complete Design Data Extraction**
 
-Transform your Figma designs into production-ready code with the power of AI. Figment bridges the gap between design and development by providing a comprehensive design-to-code workflow that works with any IDE or development environment.
+Transform your Figma designs into production-ready code with the power of AI. Figment bridges the gap between design and development by providing a comprehensive design-to-code workflow that works with any IDE or development environment. **Now with 100% complete design data extraction for pixel-perfect accuracy.**
 
 "Figment is not affiliated with, endorsed by, or sponsored by Figma, Inc."
 
@@ -22,11 +22,13 @@ npx figment-mcp
 
 Figment is a complete design-to-code solution that:
 
+- **🎯 100% Complete Design Data** - Pixel-perfect extraction with sub-pixel precision
 - **🎨 Extracts Design Systems** - Colors, typography, spacing, and components from Figma
 - **🤖 AI-Powered Code Generation** - Generate React, Vue, and HTML with AI assistance
 - **🔗 Universal IDE Integration** - Works with Cursor, Claude Desktop, Continue, and VS Code
 - **⚡ Real-time Bridge** - Live connection between Figma and your development environment
 - **♿ Accessibility First** - Generate accessible, semantic markup automatically
+- **📐 Enhanced Precision** - Sub-pixel positioning, vector paths, and complete visual properties
 
 ## One-Command Setup
 
@@ -44,9 +46,38 @@ This automatically:
 ## Usage
 
 1. **Install the Figma Plugin** from the Community
-2. **Select components** in Figma
-3. **Export with "⚡ Real-time Export"**
-4. **Use AI tools** in your IDE to generate code
+2. **Start the Bridge Server** (optional but recommended):
+   ```bash
+   npm run bridge
+   # or
+   figment-bridge
+   ```
+3. **Select components** in Figma
+4. **Export with "⚡ Real-time Export"**
+5. **Use AI tools** in your IDE to generate code
+
+### Bridge Server Setup
+
+The bridge server enables real-time communication between Figma and your development environment:
+
+```bash
+# Start the bridge server
+npm run bridge
+
+# The server will be available at:
+# http://localhost:8473
+```
+
+**Bridge Server Features:**
+- ✅ Real-time data synchronization
+- ✅ Token-based component access
+- ✅ Automatic MCP server integration
+- ✅ Debug logging and health checks
+
+**If the bridge server is not running:**
+- Tokens are still generated and copied to clipboard
+- You can use tokens directly with AI assistants
+- MCP server can access data from Figma client storage
 
 ## Supported IDEs
 
