@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2024-08-28
+
+### Added
+- **🎯 Enhanced Design Data Processing** - Comprehensive solution to address all design data issues
+- **Vector Path Conversion** - Convert complex Figma vector paths to usable SVG/CSS formats
+- **Coordinate Normalization** - Convert absolute coordinates to relative positioning for responsive design
+- **Color Standardization** - Convert all colors to consistent hex format
+- **Hierarchy Preservation** - Maintain parent-child relationships and component structure
+- **Complete Style Extraction** - Extract all visual properties including shadows, effects, and borders
+- **Design Token Integration** - Proper mapping of design tokens to visual elements
+- **Metadata Consistency** - Preserve component names, descriptions, and metadata
+- **Gradient Processing** - Enhanced gradient support with proper CSS generation
+- **Bulletproof Debug Endpoint** - Comprehensive error handling and logging
+
+### New MCP Tool
+- **`generate_enhanced_component_code`** - Generate code with enhanced design data processing
+  - Vector path conversion (SVG paths, CSS clip-paths)
+  - Normalized coordinates (relative positioning)
+  - Standardized colors (hex format)
+  - Complete style extraction
+  - Design token mapping
+  - Framework support (React, Vue, HTML)
+  - Gradient processing and border radius handling
+
+### Technical Improvements
+- **Vector Network Processing** - Convert Figma vector networks to SVG path data
+- **Bezier Curve Support** - Handle complex curves and shapes
+- **Responsive Design** - Generate responsive CSS with media queries
+- **Error Handling** - Comprehensive error handling for all data processing steps
+- **Code Generation** - Enhanced code generation with visual reference comments
+- **Debug File Access** - Improved access to complete component data from debug files
+- **Color Processing** - Enhanced rgba to hex conversion with gradient support
+
+### Fixed
+- **Debug Endpoint** - Now correctly accesses complete component data from debug files
+- **Color Processing** - Fixed rgba string parsing and gradient color handling
+- **Component Generation** - Improved border radius and gradient CSS generation
+- **Shadow Effects** - Fixed NaN values in shadow and effect processing
+- **Bridge Server** - Enhanced with comprehensive logging and fallback mechanisms
+
 ## [1.4.0] - 2025-08-27
 
 ### Added
